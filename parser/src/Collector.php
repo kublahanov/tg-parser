@@ -1,5 +1,8 @@
 <?php
 
+/**
+ * Класс для сбора данных из Telegram.
+ */
 class Collector
 {
     private $pdo;
@@ -48,20 +51,19 @@ class Collector
 
         $chat = $chatInfo['Chat'];
 
-        $stmt = $this->pdo->prepare(
-            "
+        $stmt = $this->pdo->prepare("
             INSERT INTO chats (id, peer_type, username, title, about, participants_count)
             VALUES (?, ?, ?, ?, ?, ?)
             ON DUPLICATE KEY UPDATE
                 title = VALUES(title),
                 about = VALUES(about),
                 participants_count = VALUES(participants_count)
-        "
-        );
+        ");
 
         $peerType = $chat['broadcast']
             ? 'channel'
-            : ($chat['megagroup'] ? 'supergroup' : 'group');
+            : ($chat['megagroup'] ? 'supergroup' : 'group')
+        ;
 
         $stmt->execute([
             $chat['id'],
@@ -138,8 +140,7 @@ class Collector
 
         $topicId = $msg['reply_to']['reply_to_top_id'] ?? null;
 
-        $stmt = $this->pdo->prepare(
-            "
+        $stmt = $this->pdo->prepare("
             INSERT INTO messages 
                 (id, chat_id, topic_id, from_id, date, text, has_media, 
                  views, forwards, reply_to_msg_id, raw_data)
@@ -147,8 +148,7 @@ class Collector
             ON DUPLICATE KEY UPDATE
                 views = VALUES(views),
                 forwards = VALUES(forwards)
-        "
-        );
+        ");
 
         $stmt->execute([
             $msg['id'],
@@ -180,14 +180,12 @@ class Collector
         $fileInfo = $this->extractFileInfo($media, $mediaType);
 
         // Сохраняем запись о медиа
-        $stmt = $this->pdo->prepare(
-            "
+        $stmt = $this->pdo->prepare("
             INSERT INTO media 
                 (message_chat_id, message_id, media_type, file_id, file_unique_id,
                  file_size, mime_type, file_name, downloaded)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0)
-        "
-        );
+        ");
 
         $stmt->execute([
             $chatId,
@@ -242,13 +240,11 @@ class Collector
                 file_put_contents($fullPath, $fileContent);
 
                 // Обновляем запись в БД
-                $stmt = $this->pdo->prepare(
-                    "
+                $stmt = $this->pdo->prepare("
                     UPDATE media 
                     SET file_path = ?, downloaded = 1 
                     WHERE id = ?
-                "
-                );
+                ");
 
                 $stmt->execute([$filePath, $mediaId]);
             }
