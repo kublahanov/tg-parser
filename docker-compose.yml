@@ -1,4 +1,5 @@
 services:
+
   api:
     extends:
       file: docker-compose.base.yml
@@ -9,12 +10,32 @@ services:
       - "-s=session"
     depends_on:
       - mysql
+
   mysql:
     extends:
       file: docker-compose.base.yml
       service: mysql
     ports:
       - "127.0.0.1:9507:3306"
+
+  parser:
+    build: ./parser
+    container_name: parser
+    restart: unless-stopped
+    volumes:
+      - ./parser:/app
+      - ./media:/media  # Общая папка для медиа (если нужно)
+    environment:
+      - DB_HOST=mysql
+      - DB_PORT=3306
+      - DB_NAME=parser
+      - DB_USER=root
+      - DB_PASSWORD=
+      - API_URL=http://api:9503/api
+    depends_on:
+      - api
+      - mysql
+
 networks:
   default:
     name: telegram-api-server
