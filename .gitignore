@@ -1,5 +1,6 @@
 vendor
 .*
 /sessions/*
+/media/*
 madeline.phar*
 !.local
