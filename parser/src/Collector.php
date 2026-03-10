@@ -33,23 +33,65 @@ class Collector
             [
                 PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
                 PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
+                PDO::MYSQL_ATTR_INIT_COMMAND => 'SET NAMES utf8mb4',
             ]
         );
     }
 
     /**
      * Добавление чата для мониторинга.
+     *
+     * @param $peer
+     * @return mixed
+     * @throws Exception
      */
     public function addChat($peer)
     {
+        // Очищаем входной параметр
+        $peer = trim($peer);
+
+        // Если передана полная ссылка, извлекаем username
+        if (strpos($peer, 'https://t.me/') === 0) {
+            $peer = str_replace('https://t.me/', '', $peer);
+        }
+
+        // Добавляем @ если его нет и это не числовой ID
+        if (!str_starts_with($peer, '@') && !is_numeric($peer) && !str_starts_with($peer, '-100')) {
+            $peer = '@' . $peer;
+        }
+
+        echo "Looking up: $peer\n";
+
         // Используем API TelegramApiServer [citation:1]
         $chatInfo = $this->apiRequest('getInfo', ['id' => $peer]);
 
-        if (!$chatInfo || !isset($chatInfo['Chat'])) {
-            throw new Exception("Чат не найден: $peer");
+        // Проверяем структуру ответа
+        if (isset($chatInfo['success']) && $chatInfo['success'] === true && isset($chatInfo['response']['Chat'])) {
+            $chat = $chatInfo['response']['Chat'];
+        } elseif (isset($chatInfo['Chat'])) {
+            $chat = $chatInfo['Chat'];
+        } elseif (isset($chatInfo['response']['channel_id'])) {
+            // Альтернативный формат для каналов
+            $chat = [
+                'id' => $chatInfo['response']['channel_id'],
+                'title' => $chatInfo['response']['Chat']['title'] ?? 'Unknown',
+                'username' => $chatInfo['response']['Chat']['username'] ?? null,
+                'broadcast' => true
+            ];
+        } else {
+            throw new Exception("Не удалось получить информацию о чате: " . json_encode($chatInfo));
         }
 
-        $chat = $chatInfo['Chat'];
+        // Определяем тип чата
+        if (isset($chat['broadcast']) && $chat['broadcast']) {
+            $peerType = 'channel';
+        } elseif (isset($chat['megagroup']) && $chat['megagroup']) {
+            $peerType = 'supergroup';
+        } elseif (isset($chat['chat_id'])) {
+            $peerType = 'chat';
+        } else {
+            $peerType = 'group';
+        }
 
         $stmt = $this->pdo->prepare("
             INSERT INTO chats (id, peer_type, username, title, about, participants_count)
@@ -60,11 +102,6 @@ class Collector
                 participants_count = VALUES(participants_count)
         ");
 
-        $peerType = $chat['broadcast']
-            ? 'channel'
-            : ($chat['megagroup'] ? 'supergroup' : 'group')
-        ;
-
         $stmt->execute([
             $chat['id'],
             $peerType,
@@ -74,61 +111,114 @@ class Collector
             $chat['participants_count'] ?? null,
         ]);
 
+        echo "Chat added: {$chat['title']} (ID: {$chat['id']})\n";
+
         return $chat['id'];
     }
 
     /**
      * Инкрементальная синхронизация чата.
+     *
+     * @param $chatId
+     * @param $limit
+     * @return array|int[]
+     * @throws Exception
      */
     public function syncChat($chatId, $limit = 100)
     {
         // Получаем последний синхронизированный ID
-        $stmt = $this->pdo->prepare("SELECT last_sync_id FROM chats WHERE id = ?");
+        $stmt = $this->pdo->prepare("
+            SELECT last_sync_id, title FROM chats WHERE id = ?
+        ");
+
         $stmt->execute([$chatId]);
         $chat = $stmt->fetch();
+
+        if (!$chat) {
+            throw new Exception("Chat ID $chatId not found in database");
+        }
+
         $lastSyncId = $chat['last_sync_id'] ?? 0;
 
+        $syncType = $lastSyncId ? 'incremental' : 'full';
+
+        // Логируем начало синхронизации
+        $logId = $this->startSyncLog($chatId, $syncType);
+
         $messagesAdded = 0;
+        $mediaDownloaded = 0;
         $maxId = $lastSyncId;
 
-        // Загружаем историю сообщений через API [citation:1]
-        $params = [
-            'peer' => $chatId,
-            'limit' => $limit,
-            'min_id' => $lastSyncId + 1,
-        ];
+        try {
+            echo "Syncing {$chat['title']}...\n";
 
-        $messages = $this->apiRequest('messages.getHistory', $params);
+            $params = [
+                'peer' => $chatId,
+                'limit' => $limit
+            ];
 
-        if (empty($messages)) {
-            return ['added' => 0, 'last_id' => $maxId];
-        }
-
-        foreach ($messages as $msg) {
-            $this->saveMessage($chatId, $msg);
-            $maxId = max($maxId, $msg['id']);
-            $messagesAdded++;
-
-            // Если есть медиа - скачиваем
-            if (isset($msg['media'])) {
-                $this->processMedia($chatId, $msg['id'], $msg['media']);
+            if ($lastSyncId > 0) {
+                $params['min_id'] = $lastSyncId + 1;
+                echo "Incremental sync (from ID $lastSyncId)\n";
+            } else {
+                echo "Full sync\n";
             }
-        }
 
-        // Обновляем last_sync_id
-        if ($maxId > $lastSyncId) {
-            $stmt = $this->pdo->prepare("UPDATE chats SET last_sync_id = ? WHERE id = ?");
-            $stmt->execute([$maxId, $chatId]);
+            $messages = $this->apiRequest('messages.getHistory', $params);
+
+            if (empty($messages)) {
+                echo "No new messages\n";
+                $this->finishSyncLog($logId, 'completed', 0, 0);
+                return ['added' => 0, 'media' => 0];
+            }
+
+            foreach ($messages as $msg) {
+                $this->saveMessage($chatId, $msg);
+                $maxId = max($maxId, $msg['id']);
+                $messagesAdded++;
+
+                if (isset($msg['media'])) {
+                    if ($this->processMedia($chatId, $msg['id'], $msg['media'])) {
+                        $mediaDownloaded++;
+                    }
+                }
+
+                // Прогресс каждые 10 сообщений
+                if ($messagesAdded % 10 == 0) {
+                    echo "  Progress: $messagesAdded messages\n";
+                }
+            }
+
+            // Обновляем last_sync_id
+            if ($maxId > $lastSyncId) {
+                $stmt = $this->pdo->prepare("
+                    UPDATE chats SET last_sync_id = ? WHERE id = ?
+                ");
+
+                $stmt->execute([$maxId, $chatId]);
+            }
+
+            echo "Done! Added $messagesAdded messages, $mediaDownloaded media files\n";
+
+            $this->finishSyncLog($logId, 'completed', $messagesAdded, $mediaDownloaded);
+        } catch (Exception $e) {
+            $this->finishSyncLog($logId, 'failed', $messagesAdded, $mediaDownloaded, $e->getMessage());
+            throw $e;
         }
 
         return [
             'added' => $messagesAdded,
-            'last_id' => $maxId,
+            'media' => $mediaDownloaded,
+            'last_id' => $maxId
         ];
     }
 
     /**
      * Сохранение сообщения.
+     *
+     * @param $chatId
+     * @param $msg
+     * @return void
      */
     private function saveMessage($chatId, $msg)
     {
@@ -141,10 +231,13 @@ class Collector
         $topicId = $msg['reply_to']['reply_to_top_id'] ?? null;
 
         $stmt = $this->pdo->prepare("
-            INSERT INTO messages 
-                (id, chat_id, topic_id, from_id, date, text, has_media, 
-                 views, forwards, reply_to_msg_id, raw_data)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            INSERT INTO messages (
+                id, chat_id, topic_id, from_id, date, text, has_media,
+                views, forwards, reply_to_msg_id, raw_data
+            )
+            VALUES (
+                ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
+            )
             ON DUPLICATE KEY UPDATE
                 views = VALUES(views),
                 forwards = VALUES(forwards)
@@ -167,6 +260,11 @@ class Collector
 
     /**
      * Обработка медиа.
+     *
+     * @param $chatId
+     * @param $messageId
+     * @param $media
+     * @return bool
      */
     private function processMedia($chatId, $messageId, $media)
     {
@@ -174,17 +272,22 @@ class Collector
         $mediaType = $this->detectMediaType($media);
 
         if (!$mediaType) {
-            return;
+            return false;
         }
 
         $fileInfo = $this->extractFileInfo($media, $mediaType);
 
+        if (!$fileInfo) {
+            return false;
+        }
+
         // Сохраняем запись о медиа
         $stmt = $this->pdo->prepare("
-            INSERT INTO media 
-                (message_chat_id, message_id, media_type, file_id, file_unique_id,
-                 file_size, mime_type, file_name, downloaded)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0)
+            INSERT INTO media (
+                message_chat_id, message_id, media_type, file_id, file_unique_id,
+                file_size, mime_type, file_name, width, height, duration
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ");
 
         $stmt->execute([
@@ -192,20 +295,27 @@ class Collector
             $messageId,
             $mediaType,
             $fileInfo['id'] ?? '',
-            $fileInfo['unique_id'] ?? uniqid('', true),
+            $fileInfo['unique_id'] ?? uniqid(),
             $fileInfo['size'] ?? null,
             $fileInfo['mime'] ?? null,
             $fileInfo['name'] ?? null,
+            $fileInfo['width'] ?? null,
+            $fileInfo['height'] ?? null,
+            $fileInfo['duration'] ?? null
         ]);
 
-        $mediaId = $this->pdo->lastInsertId();
-
         // Скачиваем файл через API [citation:1]
-        $this->downloadMedia($mediaId, $media);
+        $this->downloadMedia($this->pdo->lastInsertId(), $media);
+
+        return true;
     }
 
     /**
      * Скачивание медиафайла.
+     *
+     * @param $mediaId
+     * @param $media
+     * @return void
      */
     private function downloadMedia($mediaId, $media)
     {
@@ -241,8 +351,8 @@ class Collector
 
                 // Обновляем запись в БД
                 $stmt = $this->pdo->prepare("
-                    UPDATE media 
-                    SET file_path = ?, downloaded = 1 
+                    UPDATE media
+                    SET file_path = ?, downloaded = 1
                     WHERE id = ?
                 ");
 
@@ -254,39 +364,8 @@ class Collector
     }
 
     /**
-     * Запрос к TelegramApiServer [citation:1].
-     */
-    private function apiRequest($method, $params = [])
-    {
-        $url = "{$this->apiUrl}/{$method}";
-
-        // Формируем query string в формате data[peer]=...
-        if (!empty($params)) {
-            $query = [];
-
-            foreach ($params as $key => $value) {
-                $query["data[{$key}]"] = $value;
-            }
-
-            $url .= '?' . http_build_query($query);
-        }
-
-        $ch = curl_init($url);
-        curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
-        curl_setopt($ch, CURLOPT_TIMEOUT, 30);
-
-        $response = curl_exec($ch);
-        $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
-        curl_close($ch);
-
-        if ($httpCode !== 200) {
-            throw new Exception("API error: HTTP {$httpCode}");
-        }
-
-        return json_decode($response, true);
-    }
-
-    /**
+     * Определение типа медиа.
+     *
      * @param $media
      * @return string|null
      */
@@ -297,12 +376,16 @@ class Collector
             'messageMediaDocument' => 'document',
             'messageMediaVideo' => 'video',
             'messageMediaAudio' => 'audio',
+            'messageMediaVoice' => 'voice',
+            'messageMediaSticker' => 'sticker'
         ];
 
         return $types[$media['_'] ?? ''] ?? null;
     }
 
     /**
+     * Извлечение информации о файле.
+     *
      * @param $media
      * @param $type
      * @return array|null[]
@@ -317,11 +400,12 @@ class Collector
                 'id' => $media['id'] ?? null,
                 'unique_id' => $media['access_hash'] ?? null,
                 'size' => $maxSize['size'] ?? null,
-                'name' => null,
+                'width' => $maxSize['w'] ?? null,
+                'height' => $maxSize['h'] ?? null
             ];
         }
 
-        if ($type === 'document' || $type === 'video' || $type === 'audio') {
+        if (in_array($type, ['document', 'video', 'audio', 'voice', 'sticker'])) {
             $doc = $media['document'] ?? $media;
             $fileName = null;
 
@@ -338,9 +422,110 @@ class Collector
                 'size' => $doc['size'] ?? null,
                 'mime' => $doc['mime_type'] ?? null,
                 'name' => $fileName,
+                'duration' => $doc['duration'] ?? null
             ];
         }
 
         return [];
+    }
+
+    /**
+     * Запрос к TelegramApiServer [citation:1].
+     *
+     * @param $method
+     * @param $params
+     * @return mixed
+     * @throws Exception
+     */
+    private function apiRequest($method, $params = [])
+    {
+        $url = "{$this->apiUrl}/{$method}";
+
+        // Формируем query string в формате data[peer]=...
+        if (!empty($params)) {
+            $query = http_build_query($params, '', '&', PHP_QUERY_RFC3986);
+            $url .= '?' . $query;
+        }
+
+        $ch = curl_init($url);
+        curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+        curl_setopt($ch, CURLOPT_TIMEOUT, 30);
+        curl_setopt($ch, CURLOPT_USERAGENT, 'TelegramParser/1.0');
+
+        $response = curl_exec($ch);
+        $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+        curl_close($ch);
+
+        if ($httpCode !== 200) {
+            throw new Exception("API error: HTTP {$httpCode}");
+        }
+
+        $data = json_decode($response, true);
+
+        // TelegramApiServer возвращает данные в формате {"success":true,"response":...}
+        if (isset($data['success']) && $data['success'] === true && isset($data['response'])) {
+            return $data['response'];
+        }
+
+        return $data;
+    }
+
+    /**
+     * Логирование начала синхронизации.
+     *
+     * @param $chatId
+     * @param $type
+     * @return false|string
+     */
+    private function startSyncLog($chatId, $type)
+    {
+        $stmt = $this->pdo->prepare("
+            INSERT INTO sync_log (chat_id, sync_type, started_at, status)
+            VALUES (?, ?, NOW(), 'running')
+        ");
+
+        $stmt->execute([$chatId, $type]);
+
+        return $this->pdo->lastInsertId();
+    }
+
+    /**
+     * Завершение лога синхронизации.
+     *
+     * @param $logId
+     * @param $status
+     * @param $added
+     * @param $media
+     * @param $error
+     * @return void
+     */
+    private function finishSyncLog($logId, $status, $added, $media, $error = null)
+    {
+        $stmt = $this->pdo->prepare("
+            UPDATE sync_log 
+            SET
+                status = ?, messages_added = ?, media_downloaded = ?, 
+                finished_at = NOW(), error_message = ?
+            WHERE id = ?
+        ");
+
+        $stmt->execute([$status, $added, $media, $error, $logId]);
+    }
+
+    /**
+     * Получение списка всех чатов для синхронизации.
+     *
+     * @return array
+     */
+    public function getChatsForSync()
+    {
+        $stmt = $this->pdo->query("
+            SELECT id, title, last_sync_id 
+            FROM chats 
+            WHERE is_archived = 0 
+            ORDER BY last_sync_id ASC
+        ");
+
+        return $stmt->fetchAll();
     }
 }
