@@ -164,7 +164,9 @@ class Collector
                 echo "Full sync\n";
             }
 
-            $messages = $this->apiRequest('messages.getHistory', $params);
+            $response = $this->apiRequest('messages.getHistory', $params);
+
+            $messages = $response['messages'] ?? [];
 
             if (empty($messages)) {
                 echo "No new messages\n";
@@ -222,39 +224,87 @@ class Collector
      */
     private function saveMessage($chatId, $msg)
     {
-        $text = $msg['message'] ?? $msg['text'] ?? '';
+        // 1. Базовые поля
+        $messageId = $msg['id'] ?? null;
 
-        $date = isset($msg['date']) ? date('Y-m-d H:i:s', $msg['date']) : null;
+        if (!$messageId) {
+            echo "Warning: Message without ID, skipping\n";
+            return;
+        }
 
-        $replyTo = $msg['reply_to']['reply_to_msg_id'] ?? $msg['reply_to_msg_id'] ?? null;
+        $text = $msg['message'] ?? '';
 
-        $topicId = $msg['reply_to']['reply_to_top_id'] ?? null;
+        // 2. Дата
+        $date = isset($msg['date'])
+            ? date('Y-m-d H:i:s', $msg['date'])
+            : null
+        ;
 
+        $editDate = isset($msg['edit_date'])
+            ? date('Y-m-d H:i:s', $msg['edit_date'])
+            : null
+        ;
+
+        // 3. From_id может быть в разных форматах
+        $fromId = null;
+
+        if (isset($msg['from_id'])) {
+            if (is_array($msg['from_id'])) {
+                $fromId = $msg['from_id']['user_id'] ?? $msg['from_id']['channel_id'] ?? null;
+            } else {
+                $fromId = $msg['from_id'];
+            }
+        }
+
+        // 4. Reply to
+        $replyTo = null;
+        $topicId = null;
+
+        if (isset($msg['reply_to'])) {
+            $replyTo = $msg['reply_to']['reply_to_msg_id'] ?? null;
+            $topicId = $msg['reply_to']['reply_to_top_id'] ?? null; // для форумов!
+        }
+
+        // 5. Медиа
+        $hasMedia = isset($msg['media']) ? 1 : 0;
+
+        // 6. Статистика
+        $views = $msg['views'] ?? null;
+        $forwards = $msg['forwards'] ?? null;
+
+        // 7. Сохраняем в БД
         $stmt = $this->pdo->prepare("
             INSERT INTO messages (
-                id, chat_id, topic_id, from_id, date, text, has_media,
-                views, forwards, reply_to_msg_id, raw_data
+                id, chat_id, topic_id, from_id, date, edit_date,
+                text, has_media, views, forwards,
+                reply_to_msg_id, post_author, raw_data
             )
             VALUES (
-                ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
+                ?, ?, ?, ?, ?, ?,
+                ?, ?, ?, ?,
+                ?, ?, ?
             )
             ON DUPLICATE KEY UPDATE
                 views = VALUES(views),
-                forwards = VALUES(forwards)
+                forwards = VALUES(forwards),
+                edit_date = VALUES(edit_date),
+                text = VALUES(text)
         ");
 
         $stmt->execute([
-            $msg['id'],
+            $messageId,
             $chatId,
             $topicId,
-            $msg['from_id'] ?? $msg['peer_id']['user_id'] ?? null,
+            $fromId,
             $date,
+            $editDate,
             $text,
-            isset($msg['media']) ? 1 : 0,
-            $msg['views'] ?? null,
-            $msg['forwards'] ?? null,
+            $hasMedia,
+            $views,
+            $forwards,
             $replyTo,
-            json_encode($msg, JSON_UNESCAPED_UNICODE),
+            $msg['post_author'] ?? null,
+            json_encode($msg, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_PRETTY_PRINT)
         ]);
     }
 
@@ -502,9 +552,9 @@ class Collector
     private function finishSyncLog($logId, $status, $added, $media, $error = null)
     {
         $stmt = $this->pdo->prepare("
-            UPDATE sync_log 
+            UPDATE sync_log
             SET
-                status = ?, messages_added = ?, media_downloaded = ?, 
+                status = ?, messages_added = ?, media_downloaded = ?,
                 finished_at = NOW(), error_message = ?
             WHERE id = ?
         ");
@@ -520,9 +570,9 @@ class Collector
     public function getChatsForSync()
     {
         $stmt = $this->pdo->query("
-            SELECT id, title, last_sync_id 
-            FROM chats 
-            WHERE is_archived = 0 
+            SELECT id, title, last_sync_id
+            FROM chats
+            WHERE is_archived = 0
             ORDER BY last_sync_id ASC
         ");
 
