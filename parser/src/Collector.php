@@ -5,6 +5,9 @@
  */
 class Collector
 {
+    public const MESSAGE_LIMIT = 20;
+    public const SLEEP_TIME = 10;
+
     private $pdo;
     private $apiUrl;
     private $mediaBasePath;
@@ -117,16 +120,16 @@ class Collector
     }
 
     /**
-     * Инкрементальная синхронизация чата.
+     * Синхронизация сообщений чата.
      *
      * @param $chatId
      * @param $limit
      * @return array|int[]
      * @throws Exception
      */
-    public function syncChat($chatId, $limit = 100)
+    public function syncChat($chatId, $limit = self::MESSAGE_LIMIT)
     {
-        // Получаем последний синхронизированный ID
+        // Получаем информацию о чате
         $stmt = $this->pdo->prepare("
             SELECT last_sync_id, title FROM chats WHERE id = ?
         ");
@@ -152,42 +155,79 @@ class Collector
         try {
             echo "Syncing {$chat['title']}...\n";
 
-            $params = [
-                'peer' => $chatId,
-                'limit' => $limit
-            ];
-
             if ($lastSyncId > 0) {
-                $params['min_id'] = $lastSyncId + 1;
+                // ИНКРЕМЕНТАЛЬНАЯ СИНХРОНИЗАЦИЯ (новые сообщения)
                 echo "Incremental sync (from ID $lastSyncId)\n";
-            } else {
-                echo "Full sync\n";
-            }
 
-            $response = $this->apiRequest('messages.getHistory', $params);
+                $params = [
+                    'peer' => $chatId,
+                    'limit' => $limit,
+                    'min_id' => $lastSyncId + 1
+                ];
 
-            $messages = $response['messages'] ?? [];
+                $response = $this->apiRequest('messages.getHistory', $params);
+                $messages = $response['messages'] ?? [];
 
-            if (empty($messages)) {
-                echo "No new messages\n";
-                $this->finishSyncLog($logId, 'completed', 0, 0);
-                return ['added' => 0, 'media' => 0];
-            }
+                foreach ($messages as $msg) {
+                    $this->saveMessage($chatId, $msg);
+                    $maxId = max($maxId, $msg['id']);
+                    $messagesAdded++;
 
-            foreach ($messages as $msg) {
-                $this->saveMessage($chatId, $msg);
-                $maxId = max($maxId, $msg['id']);
-                $messagesAdded++;
-
-                if (isset($msg['media'])) {
-                    if ($this->processMedia($chatId, $msg['id'], $msg['media'])) {
-                        $mediaDownloaded++;
+                    if (isset($msg['media'])) {
+                        if ($this->processMedia($chatId, $msg['id'], $msg['media'])) {
+                            $mediaDownloaded++;
+                        }
                     }
                 }
 
-                // Прогресс каждые 10 сообщений
-                if ($messagesAdded % 10 == 0) {
-                    echo "  Progress: $messagesAdded messages\n";
+            } else {
+                // ПОЛНАЯ СИНХРОНИЗАЦИЯ (загружаем ВСЕ сообщения от новых к старым)
+                echo "Full sync (loading all messages)\n";
+
+                $offsetId = 0;
+                $hasMore = true;
+                $totalLoaded = 0;
+
+                while ($hasMore) {
+                    $params = [
+                        'peer' => $chatId,
+                        'limit' => $limit,
+                        'offset_id' => $offsetId
+                    ];
+
+                    $response = $this->apiRequest('messages.getHistory', $params);
+                    $messages = $response['messages'] ?? [];
+
+                    if (empty($messages)) {
+                        $hasMore = false;
+                        break;
+                    }
+
+                    foreach ($messages as $msg) {
+                        $this->saveMessage($chatId, $msg);
+                        $maxId = max($maxId, $msg['id']);
+                        $messagesAdded++;
+                        $totalLoaded++;
+
+                        if (isset($msg['media'])) {
+                            if ($this->processMedia($chatId, $msg['id'], $msg['media'])) {
+                                $mediaDownloaded++;
+                            }
+                        }
+
+                        // Прогресс каждые 10 сообщений
+                        if ($totalLoaded % 10 == 0) {
+                            echo "  Progress: $totalLoaded messages\n";
+                        }
+                    }
+
+                    // Получаем ID самого старого сообщения в этой пачке
+                    $lastMessage = end($messages);
+                    $offsetId = $lastMessage['id'];
+
+                    // Небольшая задержка между запросами
+                    echo "Sleeping for " . self::SLEEP_TIME . " seconds...\n";
+                    usleep(self::SLEEP_TIME * 1000000); // 10 секунд
                 }
             }
 
@@ -502,11 +542,31 @@ class Collector
         curl_setopt($ch, CURLOPT_TIMEOUT, 30);
         curl_setopt($ch, CURLOPT_USERAGENT, 'TelegramParser/1.0');
 
+        // var_dump(curl_getinfo($ch));
+        // exit;
+
         $response = curl_exec($ch);
         $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
         curl_close($ch);
 
         if ($httpCode !== 200) {
+            $data = json_decode($response, true);
+
+            // Проверяем на flood wait (429 или FLOOD_WAIT в ошибках)
+            if (
+                isset($data['errors'][0]['message'])
+                && strpos($data['errors'][0]['message'], 'FLOOD_WAIT') !== false
+            ) {
+                preg_match('/(\d+)/', $data['errors'][0]['message'], $matches);
+                $waitTime = $matches[1] ?? 30;
+
+                echo "⚠️ Flood control: waiting {$waitTime} seconds...\n";
+                sleep($waitTime);
+
+                // Повторяем запрос
+                return $this->apiRequest($method, $params, $retryCount + 1);
+            }
+
             throw new Exception("API error: HTTP {$httpCode}");
         }
 

@@ -29,10 +29,10 @@ try {
 
     foreach ($chats as $chat) {
         try {
-            $result = $collector->syncChat($chat['id'], 100);
-            echo "Chat {$chat['title']}: +{$result['added']} messages\n";
+            $result = $collector->syncChat($chat['id']);
+            echo "Chat \"{$chat['title']}\": +{$result['added']} messages\n";
         } catch (Exception $e) {
-            echo "Error syncing chat {$chat['title']}: " . $e->getMessage() . "\n";
+            echo "Сhat \"{$chat['title']}\" synchronization error: " . $e->getMessage() . "\n";
         }
 
         // Небольшая задержка между чатами
