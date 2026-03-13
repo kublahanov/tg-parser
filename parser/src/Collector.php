@@ -461,16 +461,71 @@ class Collector
      */
     private function detectMediaType($media)
     {
-        $types = [
+        // Прямые типы
+        $directTypes = [
             'messageMediaPhoto' => 'photo',
-            'messageMediaDocument' => 'document',
             'messageMediaVideo' => 'video',
             'messageMediaAudio' => 'audio',
             'messageMediaVoice' => 'voice',
-            'messageMediaSticker' => 'sticker'
+            'messageMediaSticker' => 'sticker',
+            'messageMediaGeo' => 'geo',
+            'messageMediaGeoLive' => 'geo_live',
+            'messageMediaContact' => 'contact',
+            'messageMediaPoll' => 'poll',
+            'messageMediaWebPage' => 'webpage',
+            'messageMediaGame' => 'game',
+            'messageMediaInvoice' => 'invoice',
+            'messageMediaVenue' => 'venue',
         ];
 
-        return $types[$media['_'] ?? ''] ?? null;
+        $type = $media['_'] ?? '';
+
+        // Проверяем прямые типы
+        if (isset($directTypes[$type])) {
+            return $directTypes[$type];
+        }
+
+        // Для document нужно анализировать mime_type и атрибуты
+        if ($type === 'messageMediaDocument') {
+            $doc = $media['document'] ?? [];
+            $mime = $doc['mime_type'] ?? '';
+            $attributes = $doc['attributes'] ?? [];
+
+            // Проверяем атрибуты
+            foreach ($attributes as $attr) {
+                $attrType = $attr['_'] ?? '';
+
+                if ($attrType === 'documentAttributeVideo') {
+                    return 'video';
+                }
+
+                if ($attrType === 'documentAttributeAudio') {
+                    // Проверяем, голосовое или музыка
+                    return $attr['voice'] ? 'voice' : 'audio';
+                }
+
+                if ($attrType === 'documentAttributeSticker') {
+                    return 'sticker';
+                }
+            }
+
+            // Если не определили по атрибутам, пробуем по mime
+            if (str_starts_with($mime, 'video/')) {
+                return 'video';
+            }
+
+            if (str_starts_with($mime, 'audio/')) {
+                return 'audio';
+            }
+
+            if ($mime === 'image/webp' || $mime === 'application/x-tgsticker') {
+                return 'sticker';
+            }
+
+            return 'document';
+        }
+
+        return null;
     }
 
     /**
