@@ -47,7 +47,7 @@ CREATE TABLE IF NOT EXISTS media
     id              BIGINT AUTO_INCREMENT PRIMARY KEY,
     message_chat_id BIGINT                                                           NOT NULL,
     message_id      BIGINT                                                           NOT NULL,
-    media_type      ENUM ('photo', 'video', 'document', 'audio', 'voice', 'sticker') NOT NULL,
+    media_type      ENUM ('photo', 'video', 'document', 'audio', 'voice', 'sticker', 'geo', 'geo_live', 'contact', 'poll', 'webpage', 'game', 'invoice', 'venue', 'unsupported') NOT NULL,
     file_id         VARCHAR(512)                                                     NOT NULL,
     file_unique_id  VARCHAR(256)                                                     NOT NULL,
     file_path       VARCHAR(1024)                                                    NULL,
