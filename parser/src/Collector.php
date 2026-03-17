@@ -358,7 +358,6 @@ class Collector
      */
     private function processMedia($chatId, $messageId, $media)
     {
-        // Определяем тип медиа
         $mediaType = $this->detectMediaType($media);
 
         if (!$mediaType) {
@@ -367,18 +366,31 @@ class Collector
 
         $fileInfo = $this->extractFileInfo($media, $mediaType);
 
-        if (!$fileInfo) {
-            return false;
-        }
+        // Какие типы можно скачать как файлы
+        $downloadableTypes = ['photo', 'video', 'document', 'audio', 'voice', 'sticker'];
 
-        // Сохраняем запись о медиа
         $stmt = $this->pdo->prepare("
             INSERT INTO media (
-                message_chat_id, message_id, media_type, file_id, file_unique_id,
-                file_size, mime_type, file_name, width, height, duration
+                message_chat_id, message_id, media_type,
+                file_id, file_unique_id, file_size,
+                mime_type, file_name, width, height, duration,
+                additional_data
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ");
+
+        $additionalData = json_encode([
+            'url' => $fileInfo['url'] ?? null,
+            'site_name' => $fileInfo['site_name'] ?? null,
+            'lat' => $fileInfo['lat'] ?? null,
+            'long' => $fileInfo['long'] ?? null,
+            'question' => $fileInfo['question'] ?? null,
+            'answers' => $fileInfo['answers'] ?? null,
+            'phone_number' => $fileInfo['phone_number'] ?? null,
+            'first_name' => $fileInfo['first_name'] ?? null,
+            'last_name' => $fileInfo['last_name'] ?? null,
+            'vcard' => $fileInfo['vcard'] ?? null,
+        ], JSON_UNESCAPED_UNICODE);
 
         $stmt->execute([
             $chatId,
@@ -391,11 +403,16 @@ class Collector
             $fileInfo['name'] ?? null,
             $fileInfo['width'] ?? null,
             $fileInfo['height'] ?? null,
-            $fileInfo['duration'] ?? null
+            $fileInfo['duration'] ?? null,
+            $additionalData
         ]);
 
-        // Скачиваем файл через API [citation:1]
-        $this->downloadMedia($this->pdo->lastInsertId(), $media);
+        $mediaId = $this->pdo->lastInsertId();
+
+        // Скачиваем только если это файловый тип
+        if (in_array($mediaType, $downloadableTypes)) {
+            $this->downloadMedia($mediaId, $media);
+        }
 
         return true;
     }
@@ -537,10 +554,10 @@ class Collector
      */
     private function extractFileInfo($media, $type)
     {
+        // Фото
         if ($type === 'photo') {
             $sizes = $media['sizes'] ?? [];
             $maxSize = end($sizes);
-
             return [
                 'id' => $media['id'] ?? null,
                 'unique_id' => $media['access_hash'] ?? null,
@@ -550,6 +567,7 @@ class Collector
             ];
         }
 
+        // Документы и медиа-файлы
         if (in_array($type, ['document', 'video', 'audio', 'voice', 'sticker'])) {
             $doc = $media['document'] ?? $media;
             $fileName = null;
@@ -567,7 +585,61 @@ class Collector
                 'size' => $doc['size'] ?? null,
                 'mime' => $doc['mime_type'] ?? null,
                 'name' => $fileName,
-                'duration' => $doc['duration'] ?? null
+                'duration' => $doc['duration'] ?? null,
+                'width' => $doc['w'] ?? null,
+                'height' => $doc['h'] ?? null
+            ];
+        }
+
+        // Webpage (ссылки с превью)
+        if ($type === 'webpage') {
+            $webpage = $media['webpage'] ?? [];
+            return [
+                'id' => $webpage['id'] ?? null,
+                'unique_id' => null,
+                'size' => null,
+                'mime' => 'text/html',
+                'name' => $webpage['title'] ?? 'webpage',
+                'url' => $webpage['url'] ?? null,
+                'site_name' => $webpage['site_name'] ?? null
+            ];
+        }
+
+        // Гео-данные
+        if (in_array($type, ['geo', 'geo_live'])) {
+            return [
+                'id' => null,
+                'unique_id' => null,
+                'size' => null,
+                'lat' => $media['lat'] ?? $media['geo']['lat'] ?? null,
+                'long' => $media['long'] ?? $media['geo']['long'] ?? null,
+                'period' => $media['period'] ?? null
+            ];
+        }
+
+        // Контакт
+        if ($type === 'contact') {
+            return [
+                'id' => null,
+                'unique_id' => null,
+                'size' => null,
+                'phone_number' => $media['phone_number'] ?? null,
+                'first_name' => $media['first_name'] ?? null,
+                'last_name' => $media['last_name'] ?? null,
+                'vcard' => $media['vcard'] ?? null
+            ];
+        }
+
+        // Опрос
+        if ($type === 'poll') {
+            $poll = $media['poll'] ?? [];
+            return [
+                'id' => $poll['id'] ?? null,
+                'unique_id' => null,
+                'size' => null,
+                'question' => $poll['question'] ?? null,
+                'answers' => json_encode($poll['answers'] ?? []),
+                'closed' => $poll['closed'] ?? false
             ];
         }
 
