@@ -230,6 +230,8 @@ class Collector
                     // Небольшая задержка между запросами
                     echo "Sleeping for " . self::SLEEP_TIME . " seconds...\n";
                     usleep(self::SLEEP_TIME * 1000000); // 10 секунд
+
+                    gc_collect_cycles();
                 }
             }
 
