@@ -39,6 +39,8 @@ class Collector
                 PDO::MYSQL_ATTR_INIT_COMMAND => 'SET NAMES utf8mb4',
             ]
         );
+
+        $this->pdo->exec("SET time_zone = '+03:00'");
     }
 
     /**
@@ -427,21 +429,45 @@ class Collector
     private function downloadMedia($mediaId, $media)
     {
         try {
-            // Формируем путь для сохранения
-            $datePath = date('Y/m/d');
-            $saveDir = "{$this->mediaBasePath}/{$datePath}";
+            // Получаем информацию о медиа из БД
+            $stmt = $this->pdo->prepare("
+                SELECT m.*, msg.chat_id
+                FROM media m
+                JOIN messages msg ON m.message_chat_id = msg.chat_id AND m.message_id = msg.id
+                WHERE m.id = ?
+            ");
 
-            if (!is_dir($saveDir)) {
-                if (!mkdir($saveDir, 0755, true) && !is_dir($saveDir)) {
-                    throw new \RuntimeException(sprintf('Directory "%s" was not created', $saveDir));
-                }
+            $stmt->execute([$mediaId]);
+            $mediaInfo = $stmt->fetch();
+
+            if (!$mediaInfo) {
+                throw new Exception("Media info not found");
             }
 
-            $fileName = $mediaId . '_' . uniqid('', true) . '.bin';
-            $filePath = "{$datePath}/{$fileName}";
-            $fullPath = "{$this->mediaBasePath}/{$filePath}";
+            // Определяем расширение по mime_type
+            $extension = $this->getExtensionFromMime($mediaInfo['mime_type'], $mediaInfo['media_type']);
 
-            // Вызываем API для скачивания [citation:1]
+            // Формируем путь: /media/{chat_id}/{id}_{type}.ext
+            $chatId = $mediaInfo['chat_id'];
+
+            $fileName = sprintf(
+                "%d_%s%s",
+                $mediaInfo['message_id'],
+                $mediaInfo['media_type'],
+                $extension ? ".$extension" : ""
+            );
+
+            $relativePath = "{$chatId}/{$fileName}";
+            $fullPath = $this->mediaBasePath . '/' . $relativePath;
+
+            // Создаём директорию
+            $dir = dirname($fullPath);
+
+            if (!is_dir($dir)) {
+                mkdir($dir, 0755, true);
+            }
+
+            // Скачиваем файл через API
             $ch = curl_init("{$this->apiUrl}/downloadToResponse");
             curl_setopt($ch, CURLOPT_POST, true);
             curl_setopt($ch, CURLOPT_POSTFIELDS, json_encode(['media' => $media]));
@@ -463,11 +489,79 @@ class Collector
                     WHERE id = ?
                 ");
 
-                $stmt->execute([$filePath, $mediaId]);
+                $stmt->execute([$relativePath, $mediaId]);
+
+                echo "Downloaded: $relativePath\n";
             }
         } catch (Exception $e) {
             error_log("Download failed: " . $e->getMessage());
         }
+    }
+
+    /**
+     * Определяет расширение по mime_type и типу медиа.
+     *
+     * @param $mime
+     * @param $mediaType
+     * @return string
+     */
+    private function getExtensionFromMime($mime, $mediaType)
+    {
+        $map = [
+            // Изображения
+            'image/jpeg' => 'jpg',
+            'image/jpg' => 'jpg',
+            'image/png' => 'png',
+            'image/gif' => 'gif',
+            'image/webp' => 'webp',
+            'image/bmp' => 'bmp',
+            'image/svg+xml' => 'svg',
+
+            // Видео
+            'video/mp4' => 'mp4',
+            'video/mpeg' => 'mpeg',
+            'video/quicktime' => 'mov',
+            'video/x-msvideo' => 'avi',
+            'video/webm' => 'webm',
+            'video/ogg' => 'ogv',
+
+            // Аудио
+            'audio/mpeg' => 'mp3',
+            'audio/mp4' => 'm4a',
+            'audio/ogg' => 'ogg',
+            'audio/webm' => 'weba',
+            'audio/wav' => 'wav',
+            'audio/x-wav' => 'wav',
+
+            // Документы
+            'application/pdf' => 'pdf',
+            'application/msword' => 'doc',
+            'application/vnd.openxmlformats-officedocument.wordprocessingml.document' => 'docx',
+            'application/vnd.ms-excel' => 'xls',
+            'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' => 'xlsx',
+            'application/vnd.ms-powerpoint' => 'ppt',
+            'application/vnd.openxmlformats-officedocument.presentationml.presentation' => 'pptx',
+            'text/plain' => 'txt',
+            'text/html' => 'html',
+            'application/zip' => 'zip',
+            'application/x-zip-compressed' => 'zip',
+            'application/x-rar-compressed' => 'rar',
+            'application/x-tar' => 'tar',
+            'application/gzip' => 'gz',
+        ];
+
+        // Специальные случаи для стикеров
+        if ($mediaType === 'sticker') {
+            if ($mime === 'application/x-tgsticker') {
+                return 'tgs'; // Анимированные стикеры Telegram
+            }
+
+            if ($mime === 'image/webp') {
+                return 'webp'; // Обычные стикеры
+            }
+        }
+
+        return $map[$mime] ?? '';
     }
 
     /**
@@ -594,6 +688,7 @@ class Collector
         // Webpage (ссылки с превью)
         if ($type === 'webpage') {
             $webpage = $media['webpage'] ?? [];
+
             return [
                 'id' => $webpage['id'] ?? null,
                 'unique_id' => null,
@@ -633,6 +728,7 @@ class Collector
         // Опрос
         if ($type === 'poll') {
             $poll = $media['poll'] ?? [];
+
             return [
                 'id' => $poll['id'] ?? null,
                 'unique_id' => null,
