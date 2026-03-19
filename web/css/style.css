@@ -1,0 +1,258 @@
+* {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+}
+
+body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, sans-serif;
+    background: #f5f5f5;
+    color: #333;
+    line-height: 1.6;
+}
+
+.container {
+    max-width: 1200px;
+    margin: 0 auto;
+    padding: 20px;
+}
+
+h1 {
+    margin-bottom: 20px;
+    color: #2c3e50;
+}
+
+.stats {
+    margin-bottom: 20px;
+    padding: 10px;
+    background: #fff;
+    border-radius: 8px;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+}
+
+/* Сетка чатов */
+.chats-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(350px, 1fr));
+    gap: 20px;
+}
+
+.chat-card {
+    background: #fff;
+    border-radius: 8px;
+    padding: 15px;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+    transition: transform 0.2s;
+}
+
+.chat-card:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 4px 8px rgba(0,0,0,0.15);
+}
+
+.chat-header h2 {
+    margin: 0 0 5px 0;
+    font-size: 1.2em;
+}
+
+.chat-header a {
+    color: #2c3e50;
+    text-decoration: none;
+}
+
+.chat-header a:hover {
+    text-decoration: underline;
+}
+
+.username {
+    color: #7f8c8d;
+    font-size: 0.9em;
+    margin-bottom: 10px;
+}
+
+.chat-stats {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 10px;
+    margin: 15px 0;
+    font-size: 0.9em;
+    color: #555;
+}
+
+.chat-type {
+    font-size: 0.8em;
+    color: #95a5a6;
+    text-transform: uppercase;
+}
+
+/* Сообщения */
+.messages {
+    background: #fff;
+    border-radius: 8px;
+    padding: 20px;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+}
+
+.message {
+    padding: 15px;
+    border-bottom: 1px solid #eee;
+}
+
+.message:last-child {
+    border-bottom: none;
+}
+
+.message-header {
+    font-size: 0.85em;
+    color: #7f8c8d;
+    margin-bottom: 8px;
+}
+
+.message-id {
+    color: #3498db;
+    font-weight: bold;
+    margin-right: 10px;
+}
+
+.message-date {
+    margin-right: 10px;
+}
+
+.edited {
+    color: #e67e22;
+    margin-right: 10px;
+}
+
+.views, .forwards {
+    margin-right: 10px;
+}
+
+.message-text {
+    font-size: 1em;
+    line-height: 1.6;
+    margin-bottom: 8px;
+}
+
+.message-text a {
+    color: #3498db;
+    text-decoration: none;
+}
+
+.message-text a:hover {
+    text-decoration: underline;
+}
+
+.reply-info {
+    font-size: 0.9em;
+    color: #7f8c8d;
+    padding: 5px 10px;
+    background: #f8f9fa;
+    border-radius: 4px;
+    display: inline-block;
+}
+
+.reply-info a {
+    color: #3498db;
+    text-decoration: none;
+}
+
+/* Пагинация */
+.pagination {
+    margin-top: 20px;
+    text-align: center;
+}
+
+.pagination a {
+    display: inline-block;
+    padding: 8px 16px;
+    margin: 0 5px;
+    background: #fff;
+    color: #3498db;
+    text-decoration: none;
+    border-radius: 4px;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+}
+
+.pagination a:hover {
+    background: #3498db;
+    color: #fff;
+}
+
+.page-info {
+    display: inline-block;
+    padding: 8px 16px;
+    color: #7f8c8d;
+}
+
+/* Медиа-сетка */
+.recent-media {
+    margin: 20px 0;
+    background: #fff;
+    border-radius: 8px;
+    padding: 20px;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+}
+
+.media-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+    gap: 15px;
+    margin-top: 15px;
+}
+
+.media-thumb {
+    background: #f8f9fa;
+    border-radius: 4px;
+    padding: 10px;
+    text-align: center;
+}
+
+.media-thumb a {
+    color: #333;
+    text-decoration: none;
+}
+
+.media-thumb img {
+    max-width: 100%;
+    max-height: 150px;
+    border-radius: 4px;
+}
+
+.media-icon {
+    font-size: 3em;
+    line-height: 1;
+    margin: 10px 0;
+}
+
+.media-name {
+    font-size: 0.8em;
+    color: #666;
+    word-break: break-word;
+}
+
+/* Шапка */
+.header {
+    margin-bottom: 20px;
+}
+
+.back-link {
+    display: inline-block;
+    margin-bottom: 10px;
+    color: #7f8c8d;
+    text-decoration: none;
+}
+
+.back-link:hover {
+    color: #3498db;
+}
+
+/* Адаптивность */
+@media (max-width: 768px) {
+    .chats-grid {
+        grid-template-columns: 1fr;
+    }
+
+    .media-grid {
+        grid-template-columns: repeat(auto-fill, minmax(100px, 1fr));
+    }
+}

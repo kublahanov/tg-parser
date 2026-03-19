@@ -36,6 +36,25 @@ services:
       - api
       - mysql
 
+  web:
+    build: ./web
+    container_name: web
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:8080:80"
+    volumes:
+      - ./web:/var/www/html
+      - ./media:/var/www/html/media
+    environment:
+      - DB_HOST=mysql
+      - DB_PORT=3306
+      - DB_NAME=parser
+      - DB_USER=root
+      - DB_PASSWORD=
+    depends_on:
+      - mysql
+      - parser
+
 networks:
   default:
     name: telegram-api-server
