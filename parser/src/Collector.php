@@ -5,8 +5,8 @@
  */
 class Collector
 {
-    public const MESSAGE_LIMIT = 30;
-    public const SLEEP_TIME = 5;
+    public const MESSAGE_LIMIT = 1000;
+    public const SLEEP_TIME = 1;
 
     private $pdo;
     private $apiUrl;
@@ -227,9 +227,9 @@ class Collector
                     $lastMessage = end($messages);
                     $offsetId = $lastMessage['id'];
 
-                    // Небольшая задержка между запросами
-                    echo "Sleeping for " . self::SLEEP_TIME . " seconds...\n";
-                    usleep(self::SLEEP_TIME * 1000000); // 10 секунд
+                    // Задержка между запросами
+                    echo "Sleeping for " . self::SLEEP_TIME . " second(s)...\n";
+                    usleep(self::SLEEP_TIME * 1000000);
 
                     gc_collect_cycles();
                 }
