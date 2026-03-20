@@ -5,8 +5,8 @@
  */
 class Collector
 {
-    public const MESSAGE_LIMIT = 1000;
-    public const SLEEP_TIME = 1;
+    public const MESSAGE_LIMIT = 500;
+    public const SLEEP_TIME = 2;
 
     private $pdo;
     private $apiUrl;
