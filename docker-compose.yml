@@ -41,7 +41,7 @@ services:
     container_name: web
     restart: unless-stopped
     ports:
-      - "127.0.0.1:8080:80"
+      - "${WEB_PORT:-8080}:80"
     volumes:
       - ./web:/var/www/html
       - ./media:/var/www/html/media

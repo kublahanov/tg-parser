@@ -762,6 +762,10 @@ class Collector
             $url .= '?' . $query;
         }
 
+        echo "---\n";
+        echo "Request: $url\n";
+        echo "---\n";
+
         $ch = curl_init($url);
         curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
         curl_setopt($ch, CURLOPT_TIMEOUT, 30);
