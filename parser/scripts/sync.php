@@ -3,6 +3,13 @@
 
 require_once __DIR__ . '/../src/Collector.php';
 
+// Парсим аргументы командной строки
+$options = getopt('', ['mode:', 'limit:', 'chat:']);
+
+$mode = $options['mode'] ?? 'new'; // old или new
+$maxMessages = intval($options['limit'] ?? 0); // 0 = без ограничений
+$specificChat = $options['chat'] ?? null;
+
 $config = [
     'db' => [
         'host' => getenv('DB_HOST') ?: 'mysql',
@@ -18,7 +25,20 @@ $config = [
 try {
     $collector = new Collector($config['db'], $config['api_url'], $config['media_path']);
 
-    $chats = $collector->getChatsForSync();
+    // Получаем чаты для синхронизации
+    if ($specificChat) {
+        // Проверяем, существует ли чат
+        $chat = $collector->getChatById($specificChat);
+
+        if (!$chat) {
+            echo "Chat with ID $specificChat not found. Add it first with add-chat.php\n";
+            exit(1);
+        }
+
+        $chats = [$chat];
+    } else {
+        $chats = $collector->getChatsForSync();
+    }
 
     if (empty($chats)) {
         echo "No chats to sync. Add some with: php add-chat.php <chat_identifier>\n";
@@ -26,19 +46,19 @@ try {
     }
 
     echo "Found " . count($chats) . " chats to sync\n";
+    echo "Mode: $mode, Max messages: " . ($maxMessages ?: 'unlimited') . "\n";
 
     foreach ($chats as $chat) {
         try {
-            $result = $collector->syncChat($chat['id']);
-            echo "Chat \"{$chat['title']}\": +{$result['added']} messages\n";
+            $result = $collector->syncChat($chat['id'], $mode, $maxMessages);
+            echo "Chat {$chat['title']}: +{$result['added']} messages\n";
         } catch (Exception $e) {
-            echo "Сhat \"{$chat['title']}\" synchronization error: " . $e->getMessage() . "\n";
+            echo "Error syncing chat {$chat['title']}: " . $e->getMessage() . "\n";
         }
 
-        // Небольшая задержка между чатами
-        sleep(2);
+        // Задержка между чатами
+        sleep(Collector::SLEEP_TIME);
     }
-
 } catch (Exception $e) {
     echo "Fatal error: " . $e->getMessage() . "\n";
     exit(1);
