@@ -71,7 +71,7 @@ CREATE TABLE IF NOT EXISTS sync_log
 (
     id               BIGINT AUTO_INCREMENT PRIMARY KEY,
     chat_id          BIGINT                       NOT NULL,
-    sync_type        ENUM ('full', 'incremental') NOT NULL,
+    sync_type        VARCHAR(50)                  NOT NULL,
     messages_found   INT                          NOT NULL   DEFAULT 0,
     messages_added   INT                          NOT NULL   DEFAULT 0,
     media_downloaded INT                          NOT NULL   DEFAULT 0,
