@@ -32,19 +32,29 @@ if (!$chat) {
     die("Chat not found");
 }
 
+// var_dump([$chatId, $perPage, $offset]);
+// exit;
+
 // Сообщения с пагинацией
-$stmt = $pdo->prepare(
-    "
+$stmt = $pdo->prepare("
     SELECT
         m.*,
-        (SELECT COUNT(*) FROM media WHERE message_chat_id = m.chat_id AND message_id = m.id) as media_count
+        (
+            SELECT COUNT(*)
+            FROM media
+            WHERE
+                message_chat_id = m.chat_id
+                AND message_id = m.id
+        ) as media_count
     FROM messages m
-    WHERE m.chat_id = ?
+    WHERE m.chat_id = :chat_id
     ORDER BY m.date DESC
-    LIMIT ? OFFSET ?
+    LIMIT :limit OFFSET :offset
 ");
 
-$stmt->execute([$chatId, $perPage, $offset]);
+$stmt->bindValue(':chat_id', $chatId, PDO::PARAM_INT);
+$stmt->bindValue(':limit', $perPage, PDO::PARAM_INT);
+$stmt->bindValue(':offset', $offset, PDO::PARAM_INT);
 $messages = $stmt->fetchAll();
 
 // Общее количество сообщений

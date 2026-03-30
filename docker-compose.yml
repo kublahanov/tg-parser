@@ -45,6 +45,7 @@ services:
     volumes:
       - ./web:/var/www/html
       - ./media:/var/www/html/media
+      - ./parser/src:/var/www/src
     environment:
       - DB_HOST=mysql
       - DB_PORT=3306
