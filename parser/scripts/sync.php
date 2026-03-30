@@ -52,8 +52,11 @@ try {
         try {
             $result = $collector->syncChat($chat['id'], $mode, $maxMessages);
             echo "Chat {$chat['title']}: +{$result['added']} messages\n";
+            $result = $collector->syncChat($chat['id']);
+            echo "Chat \"{$chat['title']}\": +{$result['added']} messages\n";
         } catch (Exception $e) {
             echo "Error syncing chat {$chat['title']}: " . $e->getMessage() . "\n";
+            echo "Сhat \"{$chat['title']}\" synchronization error: " . $e->getMessage() . "\n";
         }
 
         // Задержка между чатами
