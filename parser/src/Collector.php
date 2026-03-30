@@ -132,10 +132,12 @@ class Collector
      */
     public function syncChat($chatId, $mode = 'new', $maxMessages = 0)
     {
+        // Лимит сообщений в рамках одного цикла
+        $limit = self::MESSAGE_LIMIT;
+
         // Получаем информацию о чате
-        $stmt = $this->pdo->prepare("
-            SELECT last_sync_id, title FROM chats WHERE id = ?
-        ");
+        $stmt = $this->pdo->prepare("SELECT last_sync_id, title FROM chats WHERE id = ?");
+
         $stmt->execute([$chatId]);
         $chat = $stmt->fetch();
 
@@ -151,92 +153,100 @@ class Collector
             $mode = 'old';
         }
 
+        $syncType = $lastSyncId ? 'incremental' : 'full';
+
         // Логируем начало синхронизации
-        $logId = $this->startSyncLog($chatId, $mode);
+        $logId = $this->startSyncLog($chatId, $syncType);
 
         $messagesAdded = 0;
         $mediaDownloaded = 0;
-        $newMaxId = $lastSyncId;
-        $hasMore = true;
-        $totalLoaded = 0;
-
-        // Определяем начальную точку и направление
-        $params = ['peer' => $chatId, 'limit' => self::MESSAGE_LIMIT];
-
-        if ($mode === 'new') {
-            echo "Loading NEW messages (from ID $lastSyncId forward)\n";
-            $params['min_id'] = $lastSyncId + 1;
-        } else {
-            echo "Loading OLD messages\n";
-            // Получаем минимальный ID в таблице
-            $stmtMin = $this->pdo->prepare("SELECT MIN(id) FROM messages WHERE chat_id = ?");
-            $stmtMin->execute([$chatId]);
-            $minId = $stmtMin->fetchColumn() ?: PHP_INT_MAX;
-            echo "Current min message ID: $minId\n";
-
-            $params['max_id'] = $minId - 1;
-            $params['offset_id'] = 0;
-            $params['add_offset'] = -self::MESSAGE_LIMIT;
-        }
+        $maxId = $lastSyncId;
 
         try {
-            while ($hasMore && ($maxMessages == 0 || $totalLoaded < $maxMessages)) {
-                // Для old режима нужно корректировать offset на каждой итерации
-                if ($mode === 'old' && $totalLoaded > 0) {
-                    $params['offset_id'] = $newMinId ?? 0;
-                    $params['add_offset'] = -self::MESSAGE_LIMIT;
-                }
+            echo "Syncing {$chat['title']}...\n";
+
+            if ($lastSyncId > 0) {
+                // ИНКРЕМЕНТАЛЬНАЯ СИНХРОНИЗАЦИЯ (новые сообщения)
+                echo "Incremental sync (from ID $lastSyncId)\n";
+
+                $params = [
+                    'peer' => $chatId,
+                    'limit' => $limit,
+                    'min_id' => $lastSyncId + 1,
+                ];
 
                 $response = $this->apiRequest('messages.getHistory', $params);
                 $messages = $response['messages'] ?? [];
 
-                if (empty($messages)) {
-                    $hasMore = false;
-                    break;
-                }
-
                 foreach ($messages as $msg) {
                     $this->saveMessage($chatId, $msg);
+                    $maxId = max($maxId, $msg['id']);
                     $messagesAdded++;
-                    $totalLoaded++;
 
-                    if ($mode === 'new') {
-                        $newMaxId = max($newMaxId, $msg['id']);
-                    } else {
-                        $newMinId = min($newMinId ?? PHP_INT_MAX, $msg['id']);
-                    }
-
-                    if (isset($msg['media']) && $this->processMedia($chatId, $msg['id'], $msg['media'])) {
-                        $mediaDownloaded++;
-                    }
-
-                    if ($totalLoaded % 10 == 0) {
-                        echo "  Progress: $totalLoaded messages\n";
+                    if (isset($msg['media'])) {
+                        if ($this->processMedia($chatId, $msg['id'], $msg['media'])) {
+                            $mediaDownloaded++;
+                        }
                     }
                 }
+            } else {
+                // ПОЛНАЯ СИНХРОНИЗАЦИЯ (загружаем ВСЕ сообщения от новых к старым)
+                echo "Full sync (loading all messages)\n";
 
-                // Обновляем параметры для следующего запроса
-                if ($mode === 'new') {
-                    $params['min_id'] = $newMaxId + 1;
-                } else {
+                $offsetId = 0;
+                $hasMore = true;
+                $totalLoaded = 0;
+
+                while ($hasMore) {
+                    $params = [
+                        'peer' => $chatId,
+                        'limit' => $limit,
+                        'offset_id' => $offsetId,
+                    ];
+
+                    $response = $this->apiRequest('messages.getHistory', $params);
+                    $messages = $response['messages'] ?? [];
+
+                    if (empty($messages)) {
+                        $hasMore = false;
+                        break;
+                    }
+
+                    foreach ($messages as $msg) {
+                        $this->saveMessage($chatId, $msg);
+                        $maxId = max($maxId, $msg['id']);
+                        $messagesAdded++;
+                        $totalLoaded++;
+
+                        if (isset($msg['media'])) {
+                            if ($this->processMedia($chatId, $msg['id'], $msg['media'])) {
+                                $mediaDownloaded++;
+                            }
+                        }
+
+                        // Прогресс каждые 10 сообщений
+                        if ($totalLoaded % 10 == 0) {
+                            echo "  Progress: $totalLoaded messages\n";
+                        }
+                    }
+
+                    // Получаем ID самого старого сообщения в этой пачке
                     $lastMessage = end($messages);
-                    $params['offset_id'] = $lastMessage['id'];
-                }
+                    $offsetId = $lastMessage['id'];
 
-                echo "Sleeping for " . self::SLEEP_TIME . " second(s)...\n";
-                usleep(self::SLEEP_TIME * 1000000);
-                gc_collect_cycles();
+                    // Задержка между запросами
+                    echo "Sleeping for " . self::SLEEP_TIME . " second(s)...\n";
+                    usleep(self::SLEEP_TIME * 1000000);
+
+                    gc_collect_cycles();
+                }
             }
 
-            // Обновляем last_sync_id (всегда сохраняем максимальный ID)
-            $finalMaxId = $mode === 'new' ? $newMaxId : $this->getMaxMessageId($chatId);
+            // Обновляем last_sync_id
+            if ($maxId > $lastSyncId) {
+                $stmt = $this->pdo->prepare("UPDATE chats SET last_sync_id = ? WHERE id = ?");
 
-            if ($finalMaxId > $lastSyncId) {
-                $stmt = $this->pdo->prepare("
-                    UPDATE chats SET last_sync_id = ? WHERE id = ?
-                ");
-
-                $stmt->execute([$finalMaxId, $chatId]);
+                $stmt->execute([$maxId, $chatId]);
             }
 
             echo "Done! Added $messagesAdded messages, $mediaDownloaded media files\n";
@@ -244,14 +254,13 @@ class Collector
             $this->finishSyncLog($logId, 'completed', $messagesAdded, $mediaDownloaded);
         } catch (Exception $e) {
             $this->finishSyncLog($logId, 'failed', $messagesAdded, $mediaDownloaded, $e->getMessage());
-
             throw $e;
         }
 
         return [
             'added' => $messagesAdded,
             'media' => $mediaDownloaded,
-            'last_id' => $finalMaxId ?? $lastSyncId,
+            'last_id' => $maxId,
         ];
     }
 
@@ -412,7 +421,10 @@ class Collector
             $fileInfo['unique_id'] ?? uniqid(),
             $fileInfo['size'] ?? null,
             $fileInfo['mime'] ?? null,
-            $fileInfo['name'] ?? null,
+            isset($fileInfo['name']) && $fileInfo['name']
+                ? mb_substr($fileInfo['name'], 0, 512)
+                : null
+            ,
             $fileInfo['width'] ?? null,
             $fileInfo['height'] ?? null,
             $fileInfo['duration'] ?? null,
