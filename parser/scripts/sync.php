@@ -4,9 +4,8 @@
 require_once __DIR__ . '/../src/Collector.php';
 
 // Парсим аргументы командной строки
-$options = getopt('', ['mode:', 'limit:', 'chat:']);
+$options = getopt('', ['limit:', 'chat:']);
 
-$mode = $options['mode'] ?? 'new'; // old или new
 $maxMessages = intval($options['limit'] ?? 0); // 0 = без ограничений
 $specificChat = $options['chat'] ?? null;
 
@@ -46,11 +45,11 @@ try {
     }
 
     echo "Found " . count($chats) . " chats to sync\n";
-    echo "Mode: $mode, Max messages: " . ($maxMessages ?: 'unlimited') . "\n";
+    echo "Max messages: " . ($maxMessages ?: 'unlimited') . "\n";
 
     foreach ($chats as $chat) {
         try {
-            $result = $collector->syncChat($chat['id'], $mode, $maxMessages);
+            $result = $collector->syncChat($chat['id'], $maxMessages);
             echo "Chat {$chat['title']}: +{$result['added']} messages\n";
             $result = $collector->syncChat($chat['id']);
             echo "Chat \"{$chat['title']}\": +{$result['added']} messages\n";
