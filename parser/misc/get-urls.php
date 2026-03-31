@@ -1,5 +1,9 @@
 <?php
 
+/**
+ * Скрипт для отображения количества ссылок по всем чатам.
+ */
+
 $config = [
     'db' => [
         'host' => getenv('DB_HOST') ?: 'mysql',
@@ -21,9 +25,9 @@ $stmt = $pdo->prepare("
         id, text
     FROM messages
     WHERE
-        chat_id = -1001432413295
-        AND text IS NOT NULL
+        text IS NOT NULL
         AND text LIKE '%http%'
+        -- AND chat_id = -1001432413295
     -- LIMIT 100
 ");
 
@@ -81,6 +85,11 @@ foreach ($domainCounts as $domain => $count) {
     ];
 }
 
+// --- Сортировка по убыванию количества встреч ---
+usort($result, function($a, $b) {
+    return $b['count'] <=> $a['count'];
+});
+
 // --- Вывод таблицы в консоль ---
 if (empty($result)) {
     echo "❌ Нет найденных ссылок.\n";
@@ -90,9 +99,9 @@ if (empty($result)) {
 $headers = ['ID', 'URL', 'Count'];
 
 // Определяем ширину колонок
-$idWidth = max(strlen($headers[0]), ...array_map('strlen', array_column($result, 'id')));
-$domainWidth = max(strlen($headers[1]), ...array_map('strlen', array_column($result, 'domain')));
-$countWidth = max(strlen($headers[2]), ...array_map('strlen', array_column($result, 'count')));
+$idWidth = max(strlen($headers[0]), ...array_map('mb_strlen', array_column($result, 'id')));
+$domainWidth = max(strlen($headers[1]), ...array_map('mb_strlen', array_column($result, 'domain')));
+$countWidth = max(strlen($headers[2]), ...array_map('mb_strlen', array_column($result, 'count')));
 
 // Верхняя граница
 echo "┌" . str_repeat("─", $idWidth + 2)
