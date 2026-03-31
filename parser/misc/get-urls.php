@@ -87,10 +87,12 @@ if (empty($result)) {
     exit;
 }
 
+$headers = ['ID', 'URL', 'Count'];
+
 // Определяем ширину колонок
-$idWidth = max(2, strlen('ID')); // минимум 2
-$domainWidth = max(8, strlen('Домен'), ...array_map('strlen', array_column($result, 'domain')));
-$countWidth = max(5, strlen('Встреч'));
+$idWidth = max(strlen($headers[0]), ...array_map('strlen', array_column($result, 'id')));
+$domainWidth = max(strlen($headers[1]), ...array_map('strlen', array_column($result, 'domain')));
+$countWidth = max(strlen($headers[2]), ...array_map('strlen', array_column($result, 'count')));
 
 // Верхняя граница
 echo "┌" . str_repeat("─", $idWidth + 2)
@@ -100,7 +102,7 @@ echo "┌" . str_repeat("─", $idWidth + 2)
 // Заголовок
 printf(
     "│ %{$idWidth}s │ %{$domainWidth}s │ %{$countWidth}s │\n",
-    'ID', 'Домен', 'Встреч'
+    'ID', 'URL', 'Count'
 );
 
 // Разделитель
