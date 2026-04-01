@@ -44,7 +44,12 @@ try {
         exit(0);
     }
 
-    echo "Found " . count($chats) . " chats to sync\n";
+    echo "Found " . count($chats) . " chats to sync:\n";
+
+    foreach ($chats as $chat) {
+        echo "- chat \"{$chat['title']}\" (id: {$chat['id']})\n";
+    }
+
     echo "Max messages: " . ($maxMessages ?: 'unlimited') . "\n";
 
     foreach ($chats as $chat) {

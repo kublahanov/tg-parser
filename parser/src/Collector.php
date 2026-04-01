@@ -135,7 +135,10 @@ class Collector
         $limit = self::MESSAGE_LIMIT;
 
         // Получаем информацию о чате
-        $stmt = $this->pdo->prepare("SELECT last_sync_id, title FROM chats WHERE id = ?");
+        $stmt = $this->pdo->prepare("
+            SELECT id, title
+            FROM chats WHERE id = ?
+        ");
 
         $stmt->execute([$chatId]);
         $chat = $stmt->fetch();
@@ -144,15 +147,36 @@ class Collector
             throw new Exception("Chat ID $chatId not found in database");
         }
 
-        // $lastSyncId = $chat['last_sync_id'] ?? 0;
+        echo "Processing chat \"{$chat['title']}\" (id: {$chat['id']})...\n";
 
-        // Если last_sync_id = 0 и mode='new', автоматически переключаемся на 'old'
-        // if ($mode === 'new' && $lastSyncId == 0) {
-        //     echo "No last_sync_id found, switching to old mode\n";
-        //     $mode = 'old';
-        // }
+        /**
+         * Получаем информацию о минимальном и максимальном ID сообщения для выбранного чата,
+         * чтобы использовать его для загрузки старых и новых сообщений.
+         */
+        $stmt = $this->pdo->prepare("
+            SELECT min(id) min_id, max(id) max_id
+            FROM messages
+            WHERE chat_id = ?
+        ");
 
-        // $syncType = $lastSyncId ? 'incremental' : 'full';
+        $stmt->execute([$chatId]);
+        $message = $stmt->fetch();
+
+        // Минимальный ID сообщения для загрузки старых сообщений
+        $firstSyncId = ($message)
+            ? $message['min_id']
+            : 0
+        ;
+
+        // Максимальный ID сообщения для загрузки новых сообщений
+        $lastSyncId = ($message)
+            ? $message['max_id']
+            : 0
+        ;
+
+        var_dump($firstSyncId);
+        var_dump($lastSyncId);
+        exit;
 
         // Логируем начало синхронизации
         $logId = $this->startSyncLog($chatId);
