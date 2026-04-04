@@ -16,8 +16,8 @@ $config = [
 ];
 
 if ($argc < 2) {
-    echo "Usage: php add-chat.php <chat_identifier>\n";
-    echo "Examples:\n";
+    echo "Использовать в виде: php add-chat.php <chat_identifier>\n";
+    echo "Примеры:\n";
     echo "  php add-chat.php @durov\n";
     echo "  php add-chat.php https://t.me/durov\n";
     echo "  php add-chat.php -1001234567890\n";
@@ -29,8 +29,8 @@ $peer = $argv[1];
 try {
     $collector = new Collector($config['db'], $config['api_url'], $config['media_path']);
     $chatId = $collector->addChat($peer);
-    echo "Successfully added chat with ID: $chatId\n";
+    echo "Чат добавлен успешно. ID: $chatId\n";
 } catch (Exception $e) {
-    echo "Error: " . $e->getMessage() . "\n";
+    echo "Ошибка: " . $e->getMessage() . "\n";
     exit(1);
 }

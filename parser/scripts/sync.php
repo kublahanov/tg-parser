@@ -30,7 +30,7 @@ try {
         $chat = $collector->getChatById($specificChat);
 
         if (!$chat) {
-            echo "Chat with ID $specificChat not found. Add it first with add-chat.php\n";
+            echo "Чат с ID $specificChat не найден. Его необходимо добавить с помощью команды: php add-chat.php\n";
             exit(1);
         }
 
@@ -40,33 +40,30 @@ try {
     }
 
     if (empty($chats)) {
-        echo "No chats to sync. Add some with: php add-chat.php <chat_identifier>\n";
+        echo "Чатов для синхронизации не найдено. Добавьте чат с помощью команды: php add-chat.php <chat_identifier>\n";
         exit(0);
     }
 
-    echo "Found " . count($chats) . " chats to sync:\n";
+    echo "Найдено чатов: " . count($chats) . "\n";
 
     foreach ($chats as $chat) {
-        echo "- chat \"{$chat['title']}\" (id: {$chat['id']})\n";
+        echo "- чат \"{$chat['title']}\" (ID: {$chat['id']})\n";
     }
 
-    echo "Max messages: " . ($maxMessages ?: 'unlimited') . "\n";
+    echo "Лимит сообщений: " . ($maxMessages ?: 'unlimited') . "\n";
 
     foreach ($chats as $chat) {
         try {
             $result = $collector->syncChat($chat['id'], $maxMessages);
-            echo "Chat {$chat['title']}: +{$result['added']} messages\n";
-            $result = $collector->syncChat($chat['id']);
-            echo "Chat \"{$chat['title']}\": +{$result['added']} messages\n";
+            echo "Чат \"{$chat['title']}\" (ID: {$chat['id']}): +{$result['added']} сообщений\n";
         } catch (Exception $e) {
-            echo "Error syncing chat {$chat['title']}: " . $e->getMessage() . "\n";
-            echo "Сhat \"{$chat['title']}\" synchronization error: " . $e->getMessage() . "\n";
+            echo "Ошибка синхронизации чата \"{$chat['title']}\" (ID: {$chat['id']}): " . $e->getMessage() . "\n";
         }
 
         // Задержка между чатами
         sleep(Collector::SLEEP_TIME);
     }
 } catch (Exception $e) {
-    echo "Fatal error: " . $e->getMessage() . "\n";
+    echo "Критическая ошибка: " . $e->getMessage() . "\n";
     exit(1);
 }

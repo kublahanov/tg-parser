@@ -25,7 +25,7 @@ $mediaId = $argv[1] ?? null;
 $action = $argv[2] ?? 'info';
 
 if (!$mediaId) {
-    echo "Usage: php show-media.php <media_id> [info|open|path]\n";
+    echo "Использовать в виде: php show-media.php <media_id> [info|open|path]\n";
     exit(1);
 }
 
@@ -44,7 +44,7 @@ $stmt->execute([$mediaId]);
 $media = $stmt->fetch();
 
 if (!$media) {
-    echo "Media not found\n";
+    echo "Контент не найден\n";
     exit(1);
 }
 
@@ -70,7 +70,7 @@ switch ($action) {
 
     case 'open':
         if (!file_exists($fullPath)) {
-            echo "File not found: $fullPath\n";
+            echo "Файл не найден: $fullPath\n";
             exit(1);
         }
 
@@ -91,7 +91,7 @@ switch ($action) {
         }
 
         system("$cmd \"$fullPath\"");
-        echo "Opening: $fullPath\n";
+        echo "Открываем: $fullPath\n";
 
         break;
 }

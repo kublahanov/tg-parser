@@ -65,7 +65,7 @@ class Collector
             $peer = '@' . $peer;
         }
 
-        echo "Looking up: $peer\n";
+        echo "Ищем: $peer\n";
 
         // Используем API TelegramApiServer [citation:1]
         $chatInfo = $this->apiRequest('getInfo', ['id' => $peer]);
@@ -98,25 +98,72 @@ class Collector
             $peerType = 'group';
         }
 
+        // Получаем информацию о чате
         $stmt = $this->pdo->prepare("
-            INSERT INTO chats (id, peer_type, username, title, about, participants_count)
-            VALUES (?, ?, ?, ?, ?, ?)
-            ON DUPLICATE KEY UPDATE
-                title = VALUES(title),
-                about = VALUES(about),
-                participants_count = VALUES(participants_count)
+            SELECT id
+            FROM chats
+            WHERE
+                is_archived = 0
+                AND id = ?
+        ");
+
+        $stmt->execute([$chatId]);
+        $chat = $stmt->fetch();
+
+        if (!$chat) {
+            // Добавляем новый чат
+            $stmt = $this->pdo->prepare(
+                "
+                INSERT INTO chats (id, peer_type, username, title, about, participants_count)
+                VALUES (?, ?, ?, ?, ?, ?)
+            "
+            );
+
+            $stmt->execute([
+                $chat['id'],
+                $peerType,
+                $chat['username'] ?? null,
+                $chat['title'] ?? 'Unknown',
+                $chat['about'] ?? null,
+                $chat['participants_count'] ?? null,
+            ]);
+
+            echo "Чат добавлен: \"{$chat['title']}\" (ID: {$chat['id']})\n";
+
+            return $chat['id'];
+        }
+
+        // Запрос подтверждения обновления
+        echo "Чат уже добавлен: {$chat['title']} (ID: {$chat['id']})\n";
+        echo "Вы хотите обновить информацию о нём? (y/n): ";
+        $handle = fopen("php://stdin", "r");
+        $input = trim(fgets($handle));
+        fclose($handle);
+
+        if (strtolower($input) !== 'y' && strtolower($input) !== 'yes') {
+            throw new Exception("Добавление чата отменено пользователем.");
+        }
+
+        // Обновляем информацию о чате
+        $stmt = $this->pdo->prepare("
+            UPDATE chats
+            SET
+                title = ?,
+                username = ?,
+                about = ?,
+                participants_count = ?
+            WHERE id = ?
         ");
 
         $stmt->execute([
-            $chat['id'],
-            $peerType,
-            $chat['username'] ?? null,
             $chat['title'] ?? 'Unknown',
+            $chat['username'] ?? null,
             $chat['about'] ?? null,
             $chat['participants_count'] ?? null,
+            $chat['id'],
         ]);
 
-        echo "Chat added: {$chat['title']} (ID: {$chat['id']})\n";
+        echo "Информация о чате обновлена: \"{$chat['title']}\" (ID: {$chat['id']})\n";
 
         return $chat['id'];
     }
@@ -137,17 +184,18 @@ class Collector
         // Получаем информацию о чате
         $stmt = $this->pdo->prepare("
             SELECT id, title
-            FROM chats WHERE id = ?
+            FROM chats
+            WHERE id = ?
         ");
 
         $stmt->execute([$chatId]);
         $chat = $stmt->fetch();
 
         if (!$chat) {
-            throw new Exception("Chat ID $chatId not found in database");
+            throw new Exception("Чат с ID $chatId не найден");
         }
 
-        echo "Processing chat \"{$chat['title']}\" (id: {$chat['id']})...\n";
+        echo "Обработка чата: \"{$chat['title']}\" (id: {$chat['id']})...\n";
 
         /**
          * Получаем информацию о минимальном и максимальном ID сообщения для выбранного чата,
@@ -186,10 +234,8 @@ class Collector
         $maxId = $lastSyncId;
 
         try {
-            echo "Syncing {$chat['title']}...\n";
-
             // ПОЛНАЯ СИНХРОНИЗАЦИЯ (загружаем ВСЕ сообщения от новых к старым)
-            echo "Full sync (loading all messages)\n";
+            echo "Загрузка старых сообщений (до ID $firstSyncId)...\n";
 
             $offsetId = 0;
             $hasMore = true;
@@ -224,7 +270,7 @@ class Collector
 
                     // Прогресс каждые 10 сообщений
                     if ($totalLoaded % 10 == 0) {
-                        echo "  Progress: $totalLoaded messages\n";
+                        echo "  Обработка: $totalLoaded сообщений\n";
                     }
                 }
 
@@ -233,14 +279,14 @@ class Collector
                 $offsetId = $lastMessage['id'];
 
                 // Задержка между запросами
-                echo "Sleeping for " . self::SLEEP_TIME . " second(s)...\n";
+                echo "Пауза " . self::SLEEP_TIME . " сек. перед следующим циклом...\n";
                 usleep(self::SLEEP_TIME * 1000000);
 
                 gc_collect_cycles();
             }
 
             // ИНКРЕМЕНТАЛЬНАЯ СИНХРОНИЗАЦИЯ (новые сообщения)
-            echo "Incremental sync (from ID $lastSyncId)\n";
+            echo "Загрузка новых сообщений (от ID $lastSyncId)...\n";
 
             $params = [
                 'peer' => $chatId,
@@ -270,7 +316,7 @@ class Collector
             //     $stmt->execute([$maxId, $chatId]);
             // }
 
-            echo "Done! Added $messagesAdded messages, $mediaDownloaded media files\n";
+            echo "Завершено! Добавлено: $messagesAdded сообщений, $mediaDownloaded файлов\n";
 
             $this->finishSyncLog($logId, 'completed', $messagesAdded, $mediaDownloaded);
         } catch (Exception $e) {
@@ -293,7 +339,12 @@ class Collector
      */
     private function getMaxMessageId($chatId)
     {
-        $stmt = $this->pdo->prepare("SELECT MAX(id) FROM messages WHERE chat_id = ?");
+        $stmt = $this->pdo->prepare("
+            SELECT MAX(id)
+            FROM messages
+            WHERE chat_id = ?
+        ");
+
         $stmt->execute([$chatId]);
 
         return $stmt->fetchColumn() ?: 0;
@@ -312,7 +363,7 @@ class Collector
         $messageId = $msg['id'] ?? null;
 
         if (!$messageId) {
-            echo "Warning: Message without ID, skipping\n";
+            echo "Внимание: Сообщение без ID, пропускаем\n";
             return;
         }
 
@@ -484,7 +535,7 @@ class Collector
             $mediaInfo = $stmt->fetch();
 
             if (!$mediaInfo) {
-                throw new Exception("Media info not found");
+                throw new Exception("Информации о медиа не найдено");
             }
 
             // Определяем расширение по mime_type
@@ -534,10 +585,10 @@ class Collector
 
                 $stmt->execute([$relativePath, $mediaId]);
 
-                echo "Downloaded: $relativePath\n";
+                echo "Скачано: $relativePath\n";
             }
         } catch (Exception $e) {
-            error_log("Download failed: " . $e->getMessage());
+            error_log("Скачивание не удалось: " . $e->getMessage());
         }
     }
 
@@ -805,7 +856,7 @@ class Collector
         }
 
         echo "---\n";
-        echo "Request: $url\n";
+        echo "Запрос: $url\n";
         echo "---\n";
 
         $ch = curl_init($url);
@@ -831,14 +882,14 @@ class Collector
                 preg_match('/(\d+)/', $data['errors'][0]['message'], $matches);
                 $waitTime = $matches[1] ?? 30;
 
-                echo "⚠️ Flood control: waiting {$waitTime} seconds...\n";
+                echo "⚠️ Контроль переполнения: ждём {$waitTime} сек. перед следующим запросом...\n";
                 sleep($waitTime);
 
                 // Повторяем запрос
                 return $this->apiRequest($method, $params, $retryCount + 1);
             }
 
-            throw new Exception("API error: HTTP {$httpCode}");
+            throw new Exception("Ошибка АПИ: HTTP {$httpCode}");
         }
 
         $data = json_decode($response, true);
