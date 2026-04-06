@@ -28,8 +28,7 @@ $peer = $argv[1];
 
 try {
     $collector = new Collector($config['db'], $config['api_url'], $config['media_path']);
-    $chatId = $collector->addChat($peer);
-    echo "Чат добавлен успешно. ID: $chatId\n";
+    $collector->addChat($peer);
 } catch (Exception $e) {
     echo "Ошибка: " . $e->getMessage() . "\n";
     exit(1);

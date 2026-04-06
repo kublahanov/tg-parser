@@ -127,13 +127,13 @@ class Collector
                 $chatTgData['about'] ?? null,
             ]);
 
-            echo "Чат добавлен: \"{$chatTgData['title']}\" (ID: {$chatTgData['id']})\n";
+            echo "Чат успешно добавлен: \"{$chatTgData['title']}\" (ID: {$chatTgData['id']})\n";
 
             return $chatTgData['id'];
         }
 
         // Запрос подтверждения обновления
-        echo "Чат уже добавлен: {$chat['title']} (ID: {$chat['id']})\n";
+        echo "Чат уже добавлен: \"{$chatTgData['title']}\" (ID: {$chatTgData['id']})\n";
         echo "Вы хотите обновить информацию о нём? (y/n): ";
         $handle = fopen("php://stdin", "r");
         $input = trim(fgets($handle));
@@ -154,15 +154,15 @@ class Collector
         ");
 
         $stmt->execute([
-            $chat['title'] ?? 'Unknown',
-            $chat['username'] ?? null,
-            $chat['about'] ?? null,
-            $chat['id'],
+            $chatTgData['title'] ?? 'Unknown',
+            $chatTgData['username'] ?? null,
+            $chatTgData['about'] ?? null,
+            $chatTgData['id'],
         ]);
 
-        echo "Информация о чате обновлена: \"{$chat['title']}\" (ID: {$chat['id']})\n";
+        echo "Информация о чате обновлена: \"{$chatTgData['title']}\" (ID: {$chatTgData['id']})\n";
 
-        return $chat['id'];
+        return $chatTgData['id'];
     }
 
     /**
