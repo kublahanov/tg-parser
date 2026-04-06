@@ -72,12 +72,12 @@ class Collector
 
         // Проверяем структуру ответа
         if (isset($chatInfo['success']) && $chatInfo['success'] === true && isset($chatInfo['response']['Chat'])) {
-            $chat = $chatInfo['response']['Chat'];
+            $chatTgData = $chatInfo['response']['Chat'];
         } elseif (isset($chatInfo['Chat'])) {
-            $chat = $chatInfo['Chat'];
+            $chatTgData = $chatInfo['Chat'];
         } elseif (isset($chatInfo['response']['channel_id'])) {
             // Альтернативный формат для каналов
-            $chat = [
+            $chatTgData = [
                 'id' => $chatInfo['response']['channel_id'],
                 'title' => $chatInfo['response']['Chat']['title'] ?? 'Unknown',
                 'username' => $chatInfo['response']['Chat']['username'] ?? null,
@@ -88,11 +88,11 @@ class Collector
         }
 
         // Определяем тип чата
-        if (isset($chat['broadcast']) && $chat['broadcast']) {
+        if (isset($chatTgData['broadcast']) && $chatTgData['broadcast']) {
             $peerType = 'channel';
-        } elseif (isset($chat['megagroup']) && $chat['megagroup']) {
+        } elseif (isset($chatTgData['megagroup']) && $chatTgData['megagroup']) {
             $peerType = 'supergroup';
-        } elseif (isset($chat['chat_id'])) {
+        } elseif (isset($chatTgData['chat_id'])) {
             $peerType = 'chat';
         } else {
             $peerType = 'group';
@@ -107,30 +107,29 @@ class Collector
                 AND id = ?
         ");
 
-        $stmt->execute([$chatId]);
+        $stmt->execute([$chatTgData['id']]);
         $chat = $stmt->fetch();
 
         if (!$chat) {
             // Добавляем новый чат
             $stmt = $this->pdo->prepare(
                 "
-                INSERT INTO chats (id, peer_type, username, title, about, participants_count)
-                VALUES (?, ?, ?, ?, ?, ?)
+                INSERT INTO chats (id, peer_type, username, title, about)
+                VALUES (?, ?, ?, ?, ?)
             "
             );
 
             $stmt->execute([
-                $chat['id'],
+                $chatTgData['id'],
                 $peerType,
-                $chat['username'] ?? null,
-                $chat['title'] ?? 'Unknown',
-                $chat['about'] ?? null,
-                $chat['participants_count'] ?? null,
+                $chatTgData['username'] ?? null,
+                $chatTgData['title'] ?? 'Unknown',
+                $chatTgData['about'] ?? null,
             ]);
 
-            echo "Чат добавлен: \"{$chat['title']}\" (ID: {$chat['id']})\n";
+            echo "Чат добавлен: \"{$chatTgData['title']}\" (ID: {$chatTgData['id']})\n";
 
-            return $chat['id'];
+            return $chatTgData['id'];
         }
 
         // Запрос подтверждения обновления
@@ -150,8 +149,7 @@ class Collector
             SET
                 title = ?,
                 username = ?,
-                about = ?,
-                participants_count = ?
+                about = ?
             WHERE id = ?
         ");
 
@@ -159,7 +157,6 @@ class Collector
             $chat['title'] ?? 'Unknown',
             $chat['username'] ?? null,
             $chat['about'] ?? null,
-            $chat['participants_count'] ?? null,
             $chat['id'],
         ]);
 
@@ -952,10 +949,9 @@ class Collector
     public function getChatsForSync()
     {
         $stmt = $this->pdo->query("
-            SELECT id, title, last_sync_id
+            SELECT id, title
             FROM chats
             WHERE is_archived = 0
-            ORDER BY last_sync_id ASC
         ");
 
         return $stmt->fetchAll();
@@ -970,7 +966,7 @@ class Collector
     public function getChatById($chatId)
     {
         $stmt = $this->pdo->query("
-            SELECT id, title, last_sync_id
+            SELECT id, title
             FROM chats
             WHERE id = ?
         ");
