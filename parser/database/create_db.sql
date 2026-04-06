@@ -8,12 +8,10 @@ CREATE TABLE IF NOT EXISTS chats
     title              VARCHAR(512)                                    NOT NULL,
     about              TEXT                                            NULL,
     participants_count INT                                             NULL,
-    last_sync_id       BIGINT    DEFAULT 0,
     is_archived        TINYINT(1) DEFAULT 0,
     created_at         TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at         TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-    INDEX idx_username (username),
-    INDEX idx_last_sync (last_sync_id)
+    INDEX idx_username (username)
 ) ENGINE = InnoDB
   DEFAULT CHARSET = utf8mb4;
 
@@ -71,8 +69,6 @@ CREATE TABLE IF NOT EXISTS sync_log
 (
     id               BIGINT AUTO_INCREMENT PRIMARY KEY,
     chat_id          BIGINT                       NOT NULL,
-    sync_type        VARCHAR(50)                  NOT NULL,
-    messages_found   INT                          NOT NULL   DEFAULT 0,
     messages_added   INT                          NOT NULL   DEFAULT 0,
     media_downloaded INT                          NOT NULL   DEFAULT 0,
     started_at       TIMESTAMP                    NULL,

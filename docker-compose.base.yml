@@ -36,3 +36,4 @@ services:
       - --innodb-buffer-pool-size=128M
       - --innodb-compression-default=1
       - --innodb-compression-algorithm=zlib
+      - --default-time-zone=Europe/Moscow
