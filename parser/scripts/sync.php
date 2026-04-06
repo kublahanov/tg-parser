@@ -50,7 +50,7 @@ try {
         echo "- чат \"{$chat['title']}\" (ID: {$chat['id']})\n";
     }
 
-    echo "Лимит сообщений: " . ($maxMessages ?: 'unlimited') . "\n";
+    echo "Лимит сообщений: $maxMessages\n";
 
     foreach ($chats as $chat) {
         try {
