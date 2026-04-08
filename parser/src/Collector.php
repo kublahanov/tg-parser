@@ -84,7 +84,7 @@ class Collector
                 'broadcast' => true,
             ];
         } else {
-            throw new Exception("Не удалось получить информацию о чате: " . json_encode($chatInfo));
+            throw new Exception("Не удалось получить информацию о чате: " . json_encode($chatInfo) . "!");
         }
 
         // Определяем тип чата
@@ -127,7 +127,7 @@ class Collector
                 $chatTgData['about'] ?? null,
             ]);
 
-            echo "Чат успешно добавлен: \"{$chatTgData['title']}\" (ID: {$chatTgData['id']})\n";
+            echo "Чат успешно добавлен: \"{$chatTgData['title']}\" (ID: {$chatTgData['id']}).\n";
 
             return $chatTgData['id'];
         }
@@ -135,12 +135,13 @@ class Collector
         // Запрос подтверждения обновления
         echo "Чат уже добавлен: \"{$chatTgData['title']}\" (ID: {$chatTgData['id']})\n";
         echo "Вы хотите обновить информацию о нём? (y/n): ";
+
         $handle = fopen("php://stdin", "r");
         $input = trim(fgets($handle));
         fclose($handle);
 
         if (strtolower($input) !== 'y' && strtolower($input) !== 'yes') {
-            throw new Exception("Добавление чата отменено пользователем.");
+            throw new Exception("Добавление чата отменено пользователем!");
         }
 
         // Обновляем информацию о чате
@@ -160,7 +161,7 @@ class Collector
             $chatTgData['id'],
         ]);
 
-        echo "Информация о чате обновлена: \"{$chatTgData['title']}\" (ID: {$chatTgData['id']})\n";
+        echo "Информация о чате обновлена: \"{$chatTgData['title']}\" (ID: {$chatTgData['id']}).\n";
 
         return $chatTgData['id'];
     }
@@ -189,7 +190,7 @@ class Collector
         $chat = $stmt->fetch();
 
         if (!$chat) {
-            throw new Exception("Чат с ID $chatId не найден");
+            throw new Exception("Чат с ID $chatId не найден!");
         }
 
         echo "Обработка чата: \"{$chat['title']}\" (id: {$chat['id']})...\n";
@@ -221,7 +222,7 @@ class Collector
             $logId = $this->startSyncLog($chatId);
 
             /**
-             * Если для выбранного чата нет сообщений - определяем самое новое сообщение,
+             * Если у выбранного чата ещё нет сообщений - определяем самое новое сообщение,
              * и начинаем загрузку с него - в сторону старых сообщений.
              * Если сообщения уже есть - начинаем с самого старого
              * - так же назад во времени.
@@ -233,20 +234,14 @@ class Collector
                 $firstId = $this->getFirstMessageId($chatId);
 
                 if ($firstId) {
-                    $currentMinId = $firstId;
+                    $currentMinId = $firstId + 1; // Для пустого чата загружаем в том числе и первое сообщение
                     $currentMaxId = $firstId;
                 }
             }
 
             $hasMoreOld = true; // Флаг наличия сообщений для загрузки в результате очередного запроса
-            $offsetId = 0;
-            $totalLoaded = 0;
 
             echo "Загрузка старых сообщений (до ID $currentMinId)...\n";
-
-            var_dump($currentMinId);
-            var_dump($currentMaxId);
-            exit;
 
             /**
              * Загрузка старых сообщений.
@@ -255,7 +250,7 @@ class Collector
                 $params = [
                     'peer' => $chatId,
                     'limit' => $limit,
-                    'offset_id' => $offsetId,
+                    'max_id' => $currentMinId,
                 ];
 
                 $response = $this->apiRequest('messages.getHistory', $params);
@@ -267,36 +262,33 @@ class Collector
                 }
 
                 foreach ($messages as $msg) {
+                    // Вывод прогресса каждые 10 сообщений
+                    if ($messagesAdded > 0 && ($messagesAdded % 10 == 0)) {
+                        echo "  Обработка: $messagesAdded сообщений...\n";
+                    }
+
                     $this->saveMessage($chatId, $msg);
-                    $maxId = max($maxId, $msg['id']);
+
+                    $currentMinId = min($currentMinId, $msg['id']);
+
                     $messagesAdded++;
-                    $totalLoaded++;
 
                     if (isset($msg['media'])) {
                         if ($this->processMedia($chatId, $msg['id'], $msg['media'])) {
                             $mediaDownloaded++;
                         }
                     }
-
-                    // Прогресс каждые 10 сообщений
-                    if ($totalLoaded % 10 == 0) {
-                        echo "  Обработка: $totalLoaded сообщений\n";
-                    }
                 }
 
-                // Получаем ID самого старого сообщения в этой пачке
-                $lastMessage = end($messages);
-                $offsetId = $lastMessage['id'];
+                echo "Загружено " . count($messages) . " старых сообщений. Новое значение max_id: $currentMinId.\n";
 
                 // Задержка между запросами
-                echo "Пауза " . self::SLEEP_TIME . " сек. перед следующим циклом...\n";
+                echo "Пауза " . self::SLEEP_TIME . " сек. перед следующим циклом.\n";
 
                 $this->prepareForNextStep();
             }
 
             $hasMoreNew = true; // Флаг наличия сообщений для загрузки в результате очередного запроса
-            $offsetId = 0;
-            $totalLoaded = 0;
 
             echo "Загрузка новых сообщений (от ID $currentMaxId)...\n";
 
@@ -307,15 +299,27 @@ class Collector
                 $params = [
                     'peer' => $chatId,
                     'limit' => $limit,
-                    'min_id' => $lastSyncId + 1,
+                    'min_id' => $currentMaxId,
                 ];
 
                 $response = $this->apiRequest('messages.getHistory', $params);
                 $messages = $response['messages'] ?? [];
 
+                if (empty($messages)) {
+                    $hasMoreNew = false;
+                    break;
+                }
+
                 foreach ($messages as $msg) {
+                    // Вывод прогресса каждые 10 сообщений
+                    if ($messagesAdded > 0 && ($messagesAdded % 10 == 0)) {
+                        echo "  Обработка: $messagesAdded сообщений...\n";
+                    }
+
                     $this->saveMessage($chatId, $msg);
-                    $maxId = max($maxId, $msg['id']);
+
+                    $currentMaxId = max($currentMaxId, $msg['id']);
+
                     $messagesAdded++;
 
                     if (isset($msg['media'])) {
@@ -324,6 +328,13 @@ class Collector
                         }
                     }
                 }
+
+                echo "Загружено " . count($messages) . " новых сообщений. Новое значение min_id: $currentMaxId.\n";
+
+                // Задержка между запросами
+                echo "Пауза " . self::SLEEP_TIME . " сек. перед следующим циклом.\n";
+
+                $this->prepareForNextStep();
             }
 
             echo "Завершено! Добавлено сообщений: $messagesAdded, файлов: $mediaDownloaded\n";
@@ -335,9 +346,8 @@ class Collector
         }
 
         return [
-            'added' => $messagesAdded,
-            'media' => $mediaDownloaded,
-            'last_id' => $maxId,
+            'messages_added' => $messagesAdded,
+            'media_downloaded' => $mediaDownloaded,
         ];
     }
 
@@ -374,7 +384,7 @@ class Collector
         $messageId = $msg['id'] ?? null;
 
         if (!$messageId) {
-            echo "Внимание: Сообщение без ID, пропускаем\n";
+            echo "Внимание: Сообщение без ID, пропускаем.\n";
             return;
         }
 
@@ -546,7 +556,7 @@ class Collector
             $mediaInfo = $stmt->fetch();
 
             if (!$mediaInfo) {
-                throw new Exception("Информации о медиа не найдено");
+                throw new Exception("Информации о медиа не найдено!");
             }
 
             // Определяем расширение по mime_type
@@ -596,10 +606,10 @@ class Collector
 
                 $stmt->execute([$relativePath, $mediaId]);
 
-                echo "Скачано: $relativePath\n";
+                echo "Скачано: $relativePath.\n";
             }
         } catch (Exception $e) {
-            error_log("Скачивание не удалось: " . $e->getMessage());
+            error_log("Скачивание не удалось: " . $e->getMessage() . ".\n");
         }
     }
 
@@ -867,7 +877,7 @@ class Collector
         }
 
         echo "---\n";
-        echo "Запрос: $url\n";
+        echo "Запрос: $url.\n";
         echo "---\n";
 
         $ch = curl_init($url);
@@ -900,7 +910,7 @@ class Collector
                 return $this->apiRequest($method, $params, $retryCount + 1);
             }
 
-            throw new Exception("Ошибка АПИ: HTTP {$httpCode}");
+            throw new Exception("Ошибка АПИ: HTTP {$httpCode}.");
         }
 
         $data = json_decode($response, true);

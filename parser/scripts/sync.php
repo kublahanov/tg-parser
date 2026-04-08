@@ -54,8 +54,7 @@ try {
 
     foreach ($chats as $chat) {
         try {
-            $result = $collector->syncChat($chat['id'], $maxMessages);
-            echo "Чат \"{$chat['title']}\" (ID: {$chat['id']}): +{$result['added']} сообщений\n";
+            $collector->syncChat($chat['id'], $maxMessages);
         } catch (Exception $e) {
             echo "Ошибка синхронизации чата \"{$chat['title']}\" (ID: {$chat['id']}): " . $e->getMessage() . "\n";
         }
