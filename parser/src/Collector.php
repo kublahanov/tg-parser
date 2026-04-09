@@ -65,7 +65,7 @@ class Collector
             $peer = '@' . $peer;
         }
 
-        echo "Ищем: $peer\n";
+        $this->echo("Ищем: $peer.", 'success');
 
         // Используем API TelegramApiServer [citation:1]
         $chatInfo = $this->apiRequest('getInfo', ['id' => $peer]);
@@ -127,14 +127,21 @@ class Collector
                 $chatTgData['about'] ?? null,
             ]);
 
-            echo "Чат успешно добавлен: \"{$chatTgData['title']}\" (ID: {$chatTgData['id']}).\n";
+            $this->echo(
+                "Чат успешно добавлен: \"{$chatTgData['title']}\" (ID: {$chatTgData['id']}).",
+                'success'
+            );
 
             return $chatTgData['id'];
         }
 
         // Запрос подтверждения обновления
-        echo "Чат уже добавлен: \"{$chatTgData['title']}\" (ID: {$chatTgData['id']})\n";
-        echo "Вы хотите обновить информацию о нём? (y/n): ";
+        $this->echo(
+            "Чат уже добавлен: \"{$chatTgData['title']}\" (ID: {$chatTgData['id']})!",
+            'warning'
+        );
+
+        $this->echo('Вы хотите обновить информацию о нём? (y/n): ');
 
         $handle = fopen("php://stdin", "r");
         $input = trim(fgets($handle));
@@ -161,7 +168,10 @@ class Collector
             $chatTgData['id'],
         ]);
 
-        echo "Информация о чате обновлена: \"{$chatTgData['title']}\" (ID: {$chatTgData['id']}).\n";
+        $this->echo(
+            "Информация о чате обновлена: \"{$chatTgData['title']}\" (ID: {$chatTgData['id']}).",
+            'success'
+        );
 
         return $chatTgData['id'];
     }
@@ -193,7 +203,7 @@ class Collector
             throw new Exception("Чат с ID $chatId не найден!");
         }
 
-        echo "Обработка чата: \"{$chat['title']}\" (id: {$chat['id']})...\n";
+        $this->echo("Обработка чата: \"{$chat['title']}\" (id: {$chat['id']}).");
 
         /**
          * Получаем информацию о минимальном и максимальном ID сообщения для выбранного чата,
@@ -229,7 +239,7 @@ class Collector
              */
 
             if ($currentMinId == 0) {
-                echo "Чат пуст, пробуем получить ID первого сообщения...\n";
+                $this->echo("Чат пуст, пробуем получить ID первого сообщения...", 'info');
 
                 $firstId = $this->getFirstMessageId($chatId);
 
@@ -241,7 +251,14 @@ class Collector
 
             $hasMoreOld = true; // Флаг наличия сообщений для загрузки в результате очередного запроса
 
-            echo "Загрузка старых сообщений (до ID $currentMinId)...\n";
+            $this->echo("Загрузка старых сообщений (до ID $currentMinId)...", 'success');
+
+            // $this->echo('Success', 'success');
+            // $this->echo('Warning', 'warning');
+            // $this->echo('Info', 'info');
+            // $this->echo('Description', 'description');
+            // $this->echo('White');
+            // exit;
 
             /**
              * Загрузка старых сообщений.
@@ -258,13 +275,15 @@ class Collector
 
                 if (empty($messages)) {
                     $hasMoreOld = false;
+                    $this->echo('Список сообщений пуст, прерываем...', 'warning');
+
                     break;
                 }
 
                 foreach ($messages as $msg) {
                     // Вывод прогресса каждые 10 сообщений
                     if ($messagesAdded > 0 && ($messagesAdded % 10 == 0)) {
-                        echo "  Обработка: $messagesAdded сообщений...\n";
+                        $this->echo("  Обработка: $messagesAdded сообщений...");
                     }
 
                     $this->saveMessage($chatId, $msg);
@@ -280,17 +299,20 @@ class Collector
                     }
                 }
 
-                echo "Загружено " . count($messages) . " старых сообщений. Новое значение max_id: $currentMinId.\n";
+                $this->echo(
+                    "Загружено " . count($messages) . " старых сообщений. Новое значение max_id: $currentMinId.",
+                    'info'
+                );
 
                 // Задержка между запросами
-                echo "Пауза " . self::SLEEP_TIME . " сек. перед следующим циклом.\n";
+                $this->echo("Пауза " . self::SLEEP_TIME . " сек. перед следующим циклом.", 'description');
 
                 $this->prepareForNextStep();
             }
 
             $hasMoreNew = true; // Флаг наличия сообщений для загрузки в результате очередного запроса
 
-            echo "Загрузка новых сообщений (от ID $currentMaxId)...\n";
+            $this->echo("Загрузка новых сообщений (от ID $currentMaxId)...", 'success');
 
             /**
              * Загрузка новых сообщений.
@@ -307,13 +329,15 @@ class Collector
 
                 if (empty($messages)) {
                     $hasMoreNew = false;
+                    $this->echo('Список сообщений пуст, прерываем...', 'warning');
+
                     break;
                 }
 
                 foreach ($messages as $msg) {
                     // Вывод прогресса каждые 10 сообщений
                     if ($messagesAdded > 0 && ($messagesAdded % 10 == 0)) {
-                        echo "  Обработка: $messagesAdded сообщений...\n";
+                        $this->echo("  Обработка: $messagesAdded сообщений...");
                     }
 
                     $this->saveMessage($chatId, $msg);
@@ -329,15 +353,21 @@ class Collector
                     }
                 }
 
-                echo "Загружено " . count($messages) . " новых сообщений. Новое значение min_id: $currentMaxId.\n";
+                $this->echo(
+                    "Загружено " . count($messages) . " новых сообщений. Новое значение min_id: $currentMaxId.",
+                    'info'
+                );
 
                 // Задержка между запросами
-                echo "Пауза " . self::SLEEP_TIME . " сек. перед следующим циклом.\n";
+                $this->echo("Пауза " . self::SLEEP_TIME . " сек. перед следующим циклом.", 'description');
 
                 $this->prepareForNextStep();
             }
 
-            echo "Завершено! Добавлено сообщений: $messagesAdded, файлов: $mediaDownloaded\n";
+            $this->echo(
+                "Завершено! Добавлено сообщений: $messagesAdded, файлов: $mediaDownloaded.",
+                'success'
+            );
 
             $this->finishSyncLog($logId, 'completed', $messagesAdded, $mediaDownloaded);
         } catch (Exception $e) {
@@ -384,7 +414,7 @@ class Collector
         $messageId = $msg['id'] ?? null;
 
         if (!$messageId) {
-            echo "Внимание: Сообщение без ID, пропускаем.\n";
+            $this->echo('Внимание: Сообщение без ID, пропускаем.', 'warning');
             return;
         }
 
@@ -606,7 +636,7 @@ class Collector
 
                 $stmt->execute([$relativePath, $mediaId]);
 
-                echo "Скачано: $relativePath.\n";
+                $this->echo("Скачано: $relativePath.", 'description');
             }
         } catch (Exception $e) {
             error_log("Скачивание не удалось: " . $e->getMessage() . ".\n");
@@ -876,9 +906,9 @@ class Collector
             $url .= '?' . $query;
         }
 
-        echo "---\n";
-        echo "Запрос: $url.\n";
-        echo "---\n";
+        $this->echo('---', 'description');
+        $this->echo("Запрос: $url.", 'description');
+        $this->echo('---', 'description');
 
         $ch = curl_init($url);
         curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
@@ -903,7 +933,11 @@ class Collector
                 preg_match('/(\d+)/', $data['errors'][0]['message'], $matches);
                 $waitTime = $matches[1] ?? 30;
 
-                echo "⚠️ Контроль переполнения: ждём {$waitTime} сек. перед следующим запросом...\n";
+                $this->echo(
+                    "⚠️ Контроль переполнения: ждём {$waitTime} сек. перед следующим запросом...",
+                    'error'
+                );
+
                 sleep($waitTime);
 
                 // Повторяем запрос
@@ -915,7 +949,7 @@ class Collector
 
         $data = json_decode($response, true);
 
-        // TelegramApiServer возвращает данные в формате {"success":true,"response":...}
+        // TelegramApiServer возвращает данные в формате {"success":true, "response":...}
         if (isset($data['success']) && $data['success'] === true && isset($data['response'])) {
             return $data['response'];
         }
@@ -1028,5 +1062,28 @@ class Collector
     {
         usleep(self::SLEEP_TIME * 1000000);
         gc_collect_cycles();
+    }
+
+    /**
+     * Вывод цветного текста.
+     *
+     * @param string $message
+     * @param string|null $type
+     * @return void
+     */
+    protected function echo(string $message, string $type = null)
+    {
+        $whiteColor = "\033[0m";
+
+        $color = match ($type) {
+            'error' => "\033[31m",
+            'success' => "\033[32m",
+            'warning' => "\033[33m",
+            'info' => "\033[36m",
+            'description' => "\033[37m",
+            default => "\033[0m",
+        };
+
+        echo "{$color}{$message}{$whiteColor}\n";
     }
 }

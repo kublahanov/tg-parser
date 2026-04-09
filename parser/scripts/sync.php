@@ -30,7 +30,7 @@ try {
         $chat = $collector->getChatById($specificChat);
 
         if (!$chat) {
-            echo "Чат с ID $specificChat не найден. Его необходимо добавить с помощью команды: php add-chat.php\n";
+            echo "Чат с ID $specificChat не найден. Его необходимо добавить с помощью команды: php add-chat.php.\n";
             exit(1);
         }
 
@@ -40,29 +40,29 @@ try {
     }
 
     if (empty($chats)) {
-        echo "Чатов для синхронизации не найдено. Добавьте чат с помощью команды: php add-chat.php <chat_identifier>\n";
+        echo "Чатов для синхронизации не найдено. Добавьте чат с помощью команды: php add-chat.php <chat_identifier>.\n";
         exit(0);
     }
 
-    echo "Найдено чатов: " . count($chats) . "\n";
+    echo "Найдено чатов: " . count($chats) . ".\n";
 
     foreach ($chats as $chat) {
         echo "- чат \"{$chat['title']}\" (ID: {$chat['id']})\n";
     }
 
-    echo "Лимит сообщений: $maxMessages\n";
+    echo "Лимит сообщений: $maxMessages.\n";
 
     foreach ($chats as $chat) {
         try {
             $collector->syncChat($chat['id'], $maxMessages);
         } catch (Exception $e) {
-            echo "Ошибка синхронизации чата \"{$chat['title']}\" (ID: {$chat['id']}): " . $e->getMessage() . "\n";
+            echo "Ошибка синхронизации чата \"{$chat['title']}\" (ID: {$chat['id']}): " . $e->getMessage() . ".\n";
         }
 
         // Задержка между чатами
         sleep(Collector::SLEEP_TIME);
     }
 } catch (Exception $e) {
-    echo "Критическая ошибка: " . $e->getMessage() . "\n";
+    echo "Критическая ошибка: " . $e->getMessage() . ".\n";
     exit(1);
 }
