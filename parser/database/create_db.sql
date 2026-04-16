@@ -8,8 +8,8 @@ CREATE TABLE IF NOT EXISTS chats
     title              VARCHAR(512)                                    NOT NULL,
     about              TEXT                                            NULL,
     participants_count INT                                             NULL,
-    is_archived        TINYINT(1) DEFAULT 0,
-    is_old_uploaded    TINYINT(1) DEFAULT 0,
+    is_archived        TINYINT(1) DEFAULT 0 NOT NULL,
+    is_old_uploaded    TINYINT(1) DEFAULT 0 NOT NULL,
     created_at         TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at         TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     INDEX idx_username (username)
