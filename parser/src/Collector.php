@@ -5,8 +5,8 @@
  */
 class Collector
 {
-    public const MESSAGE_LIMIT = 500;
-    public const SLEEP_TIME = 2;
+    public const MESSAGE_LIMIT = 100; // Лимит сообщений в рамках одного цикла загрузки
+    public const SLEEP_TIME = 2; // Время ожидания между циклами загрузки (сек.)
 
     private $pdo;
     private $apiUrl;
@@ -179,19 +179,18 @@ class Collector
     /**
      * Синхронизация сообщений чата.
      *
-     * @param int $chatId ID чата
-     * @param int $maxMessages Максимальное количество сообщений для загрузки (0 = без ограничений)
-     * @return array
+     * @param $chatId
+     * @return int[]
      * @throws Exception
      */
-    public function syncChat($chatId, $maxMessages = 0)
+    public function syncChat($chatId)
     {
         // Лимит сообщений в рамках одного цикла
         $limit = self::MESSAGE_LIMIT;
 
         // Получаем информацию о чате
         $stmt = $this->pdo->prepare("
-            SELECT id, title
+            SELECT id, title, is_old_uploaded
             FROM chats
             WHERE id = ?
         ");
@@ -205,31 +204,55 @@ class Collector
 
         $this->echo("Обработка чата: \"{$chat['title']}\" (id: {$chat['id']}).");
 
-        /**
-         * Получаем информацию о минимальном и максимальном ID сообщения для выбранного чата,
-         * чтобы использовать его для загрузки старых и новых сообщений.
-         */
-        $stmt = $this->pdo->prepare("
-            SELECT min(id) min_id, max(id) max_id
-            FROM messages
-            WHERE chat_id = ?
-        ");
-
-        $stmt->execute([$chatId]);
-        $range = $stmt->fetch();
-
-        // Минимальный ID сообщения для загрузки старых сообщений
-        $currentMinId = $range['min_id'] ?? 0;
-
-        // Максимальный ID сообщения для загрузки новых сообщений
-        $currentMaxId = $range['max_id'] ?? 0;
-
         $messagesAdded = 0;
         $mediaDownloaded = 0;
 
+        var_dump($chat);
+        var_dump($chat['is_old_uploaded']);
+        var_dump((bool) $chat['is_old_uploaded']);
+        var_dump(!$chat['is_old_uploaded']);
+        var_dump(!1);
+
         try {
             // Логируем начало синхронизации
-            $logId = $this->startSyncLog($chatId);
+            // $logId = $this->startSyncLog($chatId);
+
+            /**
+             * Пункт 1.
+             * Если у чата не истинен флаг полной загрузки старых сообщений
+             * (is_old_uploaded == false) - начинаем загрузку старых сообщений.
+             */
+            if (!$chat['is_old_uploaded']) {
+                /**
+                 * Проверяем, есть ли сообщения у выбранного чата.
+                 */
+
+                $stmt = $this->pdo->prepare("
+                    SELECT count(*) cnt
+                    FROM messages
+                    WHERE chat_id = ?
+                ");
+
+                $stmt->execute([$chatId]);
+                $stmtResult = $stmt->fetch();
+                $messagesCount = $stmtResult['cnt'] ?? 0;
+
+                /**
+                 * Пункт 1.1.
+                 * Если сообщений нет - загружаем все, начиная от самого нового.
+                 */
+                if ($messagesCount < 1) {
+
+                } else {
+
+                }
+
+                var_dump($stmtResult);
+                var_dump($messagesCount);
+                exit;
+            }
+
+            exit;
 
             /**
              * Если у выбранного чата ещё нет сообщений - определяем самое новое сообщение,
@@ -266,7 +289,7 @@ class Collector
             while ($hasMoreOld) {
                 $params = [
                     'peer' => $chatId,
-                    'limit' => $limit,
+                    'limit' => self::MESSAGE_LIMIT,
                     'max_id' => $currentMinId,
                 ];
 
@@ -320,7 +343,7 @@ class Collector
             while ($hasMoreNew) {
                 $params = [
                     'peer' => $chatId,
-                    'limit' => $limit,
+                    'limit' => self::MESSAGE_LIMIT,
                     'min_id' => $currentMaxId,
                 ];
 
@@ -372,6 +395,7 @@ class Collector
             $this->finishSyncLog($logId, 'completed', $messagesAdded, $mediaDownloaded);
         } catch (Exception $e) {
             $this->finishSyncLog($logId, 'failed', $messagesAdded, $mediaDownloaded, $e->getMessage());
+
             throw $e;
         }
 
