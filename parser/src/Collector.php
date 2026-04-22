@@ -201,6 +201,9 @@ class Collector
 
         $this->echo("Обработка чата: \"{$chat['title']}\" (id: {$chat['id']}).");
 
+        $messagesAdded = 0; // Счетчик добавленных сообщений
+        $mediaDownloaded = 0; // Счетчик загруженных медиа
+
         /**
          * Пункт 1.
          * Проверяем, общее число сообщений у выбранного чата.
@@ -220,26 +223,29 @@ class Collector
          * - значит чат ещё пуст, загрузка окончена.
          */
         if ($messagesLimit < 1) {
-            $hasMoreOld = false;
-
             $this->echo('Число найденных в чате сообщений равно 0, прерываем.', 'warning');
 
             $this->setChatIsOldUploaded($chatId);
+
+            return [
+                'messages_added' => $messagesAdded,
+                'media_downloaded' => $mediaDownloaded,
+            ];
         }
 
+        $hasMoreOld = true; // Флаг необходимости загрузки старых сообщений
+        $hasMoreNew = true; // Флаг необходимости загрузки новых сообщений
+
         try {
-            $messagesAdded = 0; // Счетчик добавленных сообщений
-            $mediaDownloaded = 0; // Счетчик загруженных медиа
-
             // Логируем начало синхронизации
-            // $logId = $this->startSyncLog($chatId);
+            $logId = $this->startSyncLog($chatId);
 
-            /**
-             * Пункт 2.
-             * Если у чата не истинен флаг полной загрузки старых сообщений
-             * (is_old_uploaded == false) - начинаем загрузку старых сообщений.
-             */
             if (!$chat['is_old_uploaded']) {
+                /**
+                 * Пункт 2.
+                 * Если у чата не истинен флаг полной загрузки старых сообщений
+                 * (is_old_uploaded == false) - начинаем загрузку старых сообщений.
+                 */
                 $this->echo('Загрузка старых сообщений.', 'success');
 
                 /**
@@ -263,8 +269,6 @@ class Collector
                     $this->echo('Сообщения не найдены, начинаем с самого нового.', 'info');
 
                     $addOffset = 0; // Смещение для каждого из циклов запроса
-
-                    $hasMoreOld = true; // Флаг необходимости загрузки старых сообщений
 
                     /**
                      * Цикл загрузки.
@@ -326,6 +330,13 @@ class Collector
                         }
 
                         $addOffset += self::MESSAGE_LIMIT;
+
+                        $this->echo("Загружено " . count($messages) . " сообщений.", 'info');
+
+                        // Задержка между запросами
+                        $this->echo("Пауза " . self::SLEEP_TIME . " сек. перед следующим циклом.", 'description');
+
+                        $this->prepareForNextStep();
                     }
                 } else {
                     /**
@@ -337,144 +348,204 @@ class Collector
                         "Найдено сообщений: $messagesCount. Продолжаем загрузку от самого старого сообщения.",
                         'info'
                     );
+
+                    /**
+                     * Ищем минимальный ID сообщения среди загруженных.
+                     */
+                    $stmt = $this->pdo->prepare("
+                        SELECT min(id) min
+                        FROM messages
+                        WHERE chat_id = ?
+                    ");
+
+                    $stmt->execute([$chatId]);
+                    $stmtResult = $stmt->fetch();
+                    $minMessageId = $stmtResult['min'] ?? null;
+
+                    if (!$minMessageId) {
+                        throw new Exception("Ошибка получения минимального ID!");
+                    }
+
+                    $this->echo("Загрузка старых сообщений (от ID $minMessageId).");
+
+                    $addOffset = 0; // Смещение для каждого из циклов запроса
+
+                    /**
+                     * Цикл загрузки.
+                     */
+                    while ($hasMoreOld) {
+                        /**
+                         * Если достигнут лимит сообщений, указанный для чата
+                         * - значит загрузка окончена.
+                         */
+                        if ($addOffset + self::MESSAGE_LIMIT > $messagesLimit) {
+                            $hasMoreOld = false;
+
+                            $this->echo('Достигнут лимит сообщений, указанный для чата, прерываем.', 'warning');
+
+                            $this->setChatIsOldUploaded($chatId);
+
+                            break;
+                        }
+
+                        $params = [
+                            'peer' => $chatId,
+                            'limit' => self::MESSAGE_LIMIT,
+                            'add_offset' => $addOffset,
+                            'max_id' => $minMessageId,
+                        ];
+
+                        $response = $this->apiRequest('messages.getHistory', $params);
+
+                        $messages = $response['messages'] ?? [];
+
+                        /**
+                         * Если АПИ вернуло пустой массив сообщений
+                         * - продолжаем загрузку, так как вероятно не дошли до сообщений
+                         * с ID меньше минимального.
+                         */
+                        if (empty($messages)) {
+                            $this->echo(
+                                'Список сообщений пуст, так как, вероятно, не дошли до сообщений'
+                                . ' с ID меньше минимального. Продолжаем загрузку.',
+                                'warning'
+                            );
+
+                            $addOffset += self::MESSAGE_LIMIT;
+
+                            // Задержка между запросами
+                            $this->echo("Пауза " . self::SLEEP_TIME . " сек. перед следующим циклом.", 'description');
+
+                            $this->prepareForNextStep();
+
+                            continue;
+                        }
+
+                        foreach ($messages as $msg) {
+                            // Вывод прогресса каждые 10 сообщений
+                            if ($messagesAdded > 0 && ($messagesAdded % 10 == 0)) {
+                                $this->echo("  Обработка: $messagesAdded сообщений.");
+                            }
+
+                            $this->saveMessage($chatId, $msg);
+
+                            $messagesAdded++;
+
+                            if (isset($msg['media'])) {
+                                if ($this->processMedia($chatId, $msg['id'], $msg['media'])) {
+                                    $mediaDownloaded++;
+                                }
+                            }
+                        }
+
+                        $addOffset += self::MESSAGE_LIMIT;
+
+                        $this->echo("Загружено " . count($messages) . " сообщений.", 'info');
+
+                        // Задержка между запросами
+                        $this->echo("Пауза " . self::SLEEP_TIME . " сек. перед следующим циклом.", 'description');
+
+                        $this->prepareForNextStep();
+                    }
                 }
             } else {
-                $this->echo("Загрузка новых сообщений.", 'success');
-            }
+                /**
+                 * Пункт 3.
+                 * Если у чата истинен флаг полной загрузки старых сообщений
+                 * (is_old_uploaded == true) - начинаем загрузку новых сообщений.
+                 */
+                $this->echo('Загрузка новых сообщений.', 'success');
 
-            exit;
+                /**
+                 * Ищем максимальный ID сообщения среди загруженных.
+                 */
+                $stmt = $this->pdo->prepare("
+                        SELECT max(id) max
+                        FROM messages
+                        WHERE chat_id = ?
+                    ");
 
-            /**
-             * Если у выбранного чата ещё нет сообщений - определяем самое новое сообщение,
-             * и начинаем загрузку с него - в сторону старых сообщений.
-             * Если сообщения уже есть - начинаем с самого старого
-             * - так же назад во времени.
-             */
+                $stmt->execute([$chatId]);
+                $stmtResult = $stmt->fetch();
+                $maxMessageId = $stmtResult['max'] ?? null;
 
-            if ($currentMinId == 0) {
-                $this->echo("Чат пуст, пробуем получить ID первого сообщения.", 'info');
-
-                $firstId = $this->getFirstMessageId($chatId);
-
-                if ($firstId) {
-                    $currentMinId = $firstId + 1; // Для пустого чата загружаем в том числе и первое сообщение
-                    $currentMaxId = $firstId;
-                }
-            }
-
-            $hasMoreOld = true; // Флаг наличия сообщений для загрузки в результате очередного запроса
-
-            $this->echo("Загрузка старых сообщений (до ID $currentMinId).", 'success');
-
-            // $this->echo('Success', 'success');
-            // $this->echo('Warning', 'warning');
-            // $this->echo('Info', 'info');
-            // $this->echo('Description', 'description');
-            // $this->echo('White');
-            // exit;
-
-            /**
-             * Загрузка старых сообщений.
-             */
-            while ($hasMoreOld) {
-                $params = [
-                    'peer' => $chatId,
-                    'limit' => self::MESSAGE_LIMIT,
-                    'max_id' => $currentMinId,
-                ];
-
-                $response = $this->apiRequest('messages.getHistory', $params);
-                $messages = $response['messages'] ?? [];
-
-                if (empty($messages)) {
-                    $hasMoreOld = false;
-                    $this->echo('Список сообщений пуст, прерываем.', 'warning');
-
-                    break;
+                if (!$maxMessageId) {
+                    throw new Exception("Ошибка получения минимального ID!");
                 }
 
-                foreach ($messages as $msg) {
-                    // Вывод прогресса каждые 10 сообщений
-                    if ($messagesAdded > 0 && ($messagesAdded % 10 == 0)) {
-                        $this->echo("  Обработка: $messagesAdded сообщений...");
+                $this->echo("Загрузка новых сообщений (от ID $maxMessageId).");
+
+                $addOffset = 0; // Смещение для каждого из циклов запроса
+
+                /**
+                 * Цикл загрузки.
+                 */
+                while ($hasMoreNew) {
+                    /**
+                     * Если достигнут лимит сообщений, указанный для чата
+                     * - значит загрузка окончена.
+                     */
+                    if ($addOffset + self::MESSAGE_LIMIT > $messagesLimit) {
+                        $hasMoreOld = false;
+
+                        $this->echo('Достигнут лимит сообщений, указанный для чата, прерываем.', 'warning');
+
+                        $this->setChatIsOldUploaded($chatId);
+
+                        break;
                     }
 
-                    $this->saveMessage($chatId, $msg);
+                    $params = [
+                        'peer' => $chatId,
+                        'limit' => self::MESSAGE_LIMIT,
+                        'add_offset' => $addOffset,
+                        'min_id' => $maxMessageId,
+                    ];
 
-                    $currentMinId = min($currentMinId, $msg['id']);
+                    $response = $this->apiRequest('messages.getHistory', $params);
 
-                    $messagesAdded++;
+                    $messages = $response['messages'] ?? [];
 
-                    if (isset($msg['media'])) {
-                        if ($this->processMedia($chatId, $msg['id'], $msg['media'])) {
-                            $mediaDownloaded++;
+                    /**
+                     * Если АПИ вернуло пустой массив сообщений
+                     * - значит загрузка окончена.
+                     */
+                    if (empty($messages)) {
+                        $hasMoreOld = false;
+
+                        $this->echo('Список сообщений пуст, прерываем.', 'warning');
+
+                        $this->setChatIsOldUploaded($chatId);
+
+                        break;
+                    }
+
+                    foreach ($messages as $msg) {
+                        // Вывод прогресса каждые 10 сообщений
+                        if ($messagesAdded > 0 && ($messagesAdded % 10 == 0)) {
+                            $this->echo("  Обработка: $messagesAdded сообщений.");
+                        }
+
+                        $this->saveMessage($chatId, $msg);
+
+                        $messagesAdded++;
+
+                        if (isset($msg['media'])) {
+                            if ($this->processMedia($chatId, $msg['id'], $msg['media'])) {
+                                $mediaDownloaded++;
+                            }
                         }
                     }
+
+                    $addOffset += self::MESSAGE_LIMIT;
+
+                    $this->echo("Загружено " . count($messages) . " сообщений.", 'info');
+
+                    // Задержка между запросами
+                    $this->echo("Пауза " . self::SLEEP_TIME . " сек. перед следующим циклом.", 'description');
+
+                    $this->prepareForNextStep();
                 }
-
-                $this->echo(
-                    "Загружено " . count($messages) . " старых сообщений. Новое значение max_id: $currentMinId.",
-                    'info'
-                );
-
-                // Задержка между запросами
-                $this->echo("Пауза " . self::SLEEP_TIME . " сек. перед следующим циклом.", 'description');
-
-                $this->prepareForNextStep();
-            }
-
-            $hasMoreNew = true; // Флаг наличия сообщений для загрузки в результате очередного запроса
-
-            $this->echo("Загрузка новых сообщений (от ID $currentMaxId).", 'success');
-
-            /**
-             * Загрузка новых сообщений.
-             */
-            while ($hasMoreNew) {
-                $params = [
-                    'peer' => $chatId,
-                    'limit' => self::MESSAGE_LIMIT,
-                    'min_id' => $currentMaxId,
-                ];
-
-                $response = $this->apiRequest('messages.getHistory', $params);
-                $messages = $response['messages'] ?? [];
-
-                if (empty($messages)) {
-                    $hasMoreNew = false;
-                    $this->echo('Список сообщений пуст, прерываем.', 'warning');
-
-                    break;
-                }
-
-                foreach ($messages as $msg) {
-                    // Вывод прогресса каждые 10 сообщений
-                    if ($messagesAdded > 0 && ($messagesAdded % 10 == 0)) {
-                        $this->echo("  Обработка: $messagesAdded сообщений.");
-                    }
-
-                    $this->saveMessage($chatId, $msg);
-
-                    $currentMaxId = max($currentMaxId, $msg['id']);
-
-                    $messagesAdded++;
-
-                    if (isset($msg['media'])) {
-                        if ($this->processMedia($chatId, $msg['id'], $msg['media'])) {
-                            $mediaDownloaded++;
-                        }
-                    }
-                }
-
-                $this->echo(
-                    "Загружено " . count($messages) . " новых сообщений. Новое значение min_id: $currentMaxId.",
-                    'info'
-                );
-
-                // Задержка между запросами
-                $this->echo("Пауза " . self::SLEEP_TIME . " сек. перед следующим циклом.", 'description');
-
-                $this->prepareForNextStep();
             }
 
             $this->echo(
