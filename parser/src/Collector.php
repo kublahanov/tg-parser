@@ -44,7 +44,7 @@ class Collector
     }
 
     /**
-     * Добавление чата для мониторинга.
+     * Добавление чата для синхронизации.
      *
      * @param $peer
      * @return mixed
@@ -201,8 +201,8 @@ class Collector
 
         $this->echo("Обработка чата: \"{$chat['title']}\" (id: {$chat['id']}).");
 
-        $messagesAdded = 0; // Счетчик добавленных сообщений
-        $mediaDownloaded = 0; // Счетчик загруженных медиа
+        $messagesAdded = 0; // Счётчик добавленных сообщений
+        $mediaDownloaded = 0; // Счётчик загруженных медиа
 
         /**
          * Пункт 1.
@@ -274,20 +274,6 @@ class Collector
                      * Цикл загрузки.
                      */
                     while ($hasMoreOld) {
-                        /**
-                         * Если достигнут лимит сообщений, указанный для чата
-                         * - значит загрузка окончена.
-                         */
-                        if ($addOffset + self::MESSAGE_LIMIT > $messagesLimit) {
-                            $hasMoreOld = false;
-
-                            $this->echo('Достигнут лимит сообщений, указанный для чата, прерываем.', 'warning');
-
-                            $this->setChatIsOldUploaded($chatId);
-
-                            break;
-                        }
-
                         $params = [
                             'peer' => $chatId,
                             'limit' => self::MESSAGE_LIMIT,
@@ -337,6 +323,20 @@ class Collector
                         $this->echo("Пауза " . self::SLEEP_TIME . " сек. перед следующим циклом.", 'description');
 
                         $this->prepareForNextStep();
+
+                        /**
+                         * Если достигнут лимит сообщений, указанный для чата
+                         * - значит загрузка окончена.
+                         */
+                        if ($addOffset + self::MESSAGE_LIMIT > $messagesLimit) {
+                            $hasMoreOld = false;
+
+                            $this->echo('Достигнут лимит сообщений, указанный для чата, прерываем.', 'warning');
+
+                            $this->setChatIsOldUploaded($chatId);
+
+                            break;
+                        }
                     }
                 } else {
                     /**
@@ -374,20 +374,6 @@ class Collector
                      * Цикл загрузки.
                      */
                     while ($hasMoreOld) {
-                        /**
-                         * Если достигнут лимит сообщений, указанный для чата
-                         * - значит загрузка окончена.
-                         */
-                        if ($addOffset + self::MESSAGE_LIMIT > $messagesLimit) {
-                            $hasMoreOld = false;
-
-                            $this->echo('Достигнут лимит сообщений, указанный для чата, прерываем.', 'warning');
-
-                            $this->setChatIsOldUploaded($chatId);
-
-                            break;
-                        }
-
                         $params = [
                             'peer' => $chatId,
                             'limit' => self::MESSAGE_LIMIT,
@@ -446,6 +432,20 @@ class Collector
                         $this->echo("Пауза " . self::SLEEP_TIME . " сек. перед следующим циклом.", 'description');
 
                         $this->prepareForNextStep();
+
+                        /**
+                         * Если достигнут лимит сообщений, указанный для чата
+                         * - значит загрузка окончена.
+                         */
+                        if ($addOffset + self::MESSAGE_LIMIT > $messagesLimit) {
+                            $hasMoreOld = false;
+
+                            $this->echo('Достигнут лимит сообщений, указанный для чата, прерываем.', 'warning');
+
+                            $this->setChatIsOldUploaded($chatId);
+
+                            break;
+                        }
                     }
                 }
             } else {
@@ -481,20 +481,6 @@ class Collector
                  * Цикл загрузки.
                  */
                 while ($hasMoreNew) {
-                    /**
-                     * Если достигнут лимит сообщений, указанный для чата
-                     * - значит загрузка окончена.
-                     */
-                    if ($addOffset + self::MESSAGE_LIMIT > $messagesLimit) {
-                        $hasMoreOld = false;
-
-                        $this->echo('Достигнут лимит сообщений, указанный для чата, прерываем.', 'warning');
-
-                        $this->setChatIsOldUploaded($chatId);
-
-                        break;
-                    }
-
                     $params = [
                         'peer' => $chatId,
                         'limit' => self::MESSAGE_LIMIT,
@@ -514,8 +500,6 @@ class Collector
                         $hasMoreOld = false;
 
                         $this->echo('Список сообщений пуст, прерываем.', 'warning');
-
-                        $this->setChatIsOldUploaded($chatId);
 
                         break;
                     }
@@ -545,6 +529,18 @@ class Collector
                     $this->echo("Пауза " . self::SLEEP_TIME . " сек. перед следующим циклом.", 'description');
 
                     $this->prepareForNextStep();
+
+                    /**
+                     * Если достигнут лимит сообщений, указанный для чата
+                     * - значит загрузка окончена.
+                     */
+                    if ($addOffset + self::MESSAGE_LIMIT > $messagesLimit) {
+                        $hasMoreOld = false;
+
+                        $this->echo('Достигнут лимит сообщений, указанный для чата, прерываем.', 'warning');
+
+                        break;
+                    }
                 }
             }
 
@@ -567,23 +563,38 @@ class Collector
     }
 
     /**
-     * @deprecated
-     * Получить максимальный ID сообщения в чате.
+     * Получение списка всех чатов для синхронизации.
+     *
+     * @return array
+     */
+    public function getChatsForSync()
+    {
+        $stmt = $this->pdo->query("
+            SELECT id, title
+            FROM chats
+            WHERE is_archived = 0
+        ");
+
+        return $stmt->fetchAll();
+    }
+
+    /**
+     * Получение чата по его Id.
      *
      * @param $chatId
-     * @return int|mixed
+     * @return mixed
      */
-    private function getMaxMessageId($chatId)
+    public function getChatById($chatId)
     {
         $stmt = $this->pdo->prepare("
-            SELECT MAX(id)
-            FROM messages
-            WHERE chat_id = ?
+            SELECT id, title
+            FROM chats
+            WHERE id = ?
         ");
 
         $stmt->execute([$chatId]);
 
-        return $stmt->fetchColumn() ?: 0;
+        return $stmt->fetch();
     }
 
     /**
@@ -593,7 +604,7 @@ class Collector
      * @param $msg
      * @return void
      */
-    private function saveMessage($chatId, $msg)
+    protected function saveMessage($chatId, $msg)
     {
         // 1. Базовые поля
         $messageId = $msg['id'] ?? null;
@@ -685,7 +696,7 @@ class Collector
      * @param $media
      * @return bool
      */
-    private function processMedia($chatId, $messageId, $media)
+    protected function processMedia($chatId, $messageId, $media)
     {
         $mediaType = $this->detectMediaType($media);
 
@@ -756,7 +767,7 @@ class Collector
      * @param $media
      * @return void
      */
-    private function downloadMedia($mediaId, $media)
+    protected function downloadMedia($mediaId, $media)
     {
         try {
             // Получаем информацию о медиа из БД
@@ -835,7 +846,7 @@ class Collector
      * @param $mediaType
      * @return string
      */
-    private function getExtensionFromMime($mime, $mediaType)
+    protected function getExtensionFromMime($mime, $mediaType)
     {
         $map = [
             // Изображения
@@ -900,7 +911,7 @@ class Collector
      * @param $media
      * @return string|null
      */
-    private function detectMediaType($media)
+    protected function detectMediaType($media)
     {
         // Прямые типы
         $directTypes = [
@@ -976,7 +987,7 @@ class Collector
      * @param $type
      * @return array|null[]
      */
-    private function extractFileInfo($media, $type)
+    protected function extractFileInfo($media, $type)
     {
         // Фото
         if ($type === 'photo') {
@@ -1081,7 +1092,7 @@ class Collector
      * @return mixed
      * @throws Exception
      */
-    private function apiRequest($method, $params = [])
+    protected function apiRequest($method, $params = [])
     {
         $url = "{$this->apiUrl}/{$method}";
 
@@ -1149,7 +1160,7 @@ class Collector
      * @param $type
      * @return false|string
      */
-    private function startSyncLog($chatId)
+    protected function startSyncLog($chatId)
     {
         $stmt = $this->pdo->prepare("
             INSERT INTO sync_log (chat_id, started_at, status)
@@ -1171,7 +1182,7 @@ class Collector
      * @param $error
      * @return void
      */
-    private function finishSyncLog($logId, $status, $added, $media, $error = null)
+    protected function finishSyncLog($logId, $status, $added, $media, $error = null)
     {
         $stmt = $this->pdo->prepare("
             UPDATE sync_log
@@ -1185,91 +1196,14 @@ class Collector
     }
 
     /**
-     * Получение списка всех чатов для синхронизации.
-     *
-     * @return array
-     */
-    public function getChatsForSync()
-    {
-        $stmt = $this->pdo->query("
-            SELECT id, title
-            FROM chats
-            WHERE is_archived = 0
-        ");
-
-        return $stmt->fetchAll();
-    }
-
-    /**
-     * Получение чата по его Id.
-     *
-     * @param $chatId
-     * @return mixed
-     */
-    public function getChatById($chatId)
-    {
-        $stmt = $this->pdo->prepare("
-            SELECT id, title
-            FROM chats
-            WHERE id = ?
-        ");
-
-        $stmt->execute([$chatId]);
-
-        return $stmt->fetch();
-    }
-
-    /**
-     * Получить ID самого нового сообщения в чате.
-     *
-     * @param $chatId
-     * @return int|mixed
-     */
-    private function getFirstMessageId($chatId)
-    {
-        $params = [
-            'peer' => $chatId,
-            'limit' => 1,
-        ];
-
-        $response = $this->apiRequest('messages.getHistory', $params);
-        $messages = $response['messages'] ?? [];
-
-        return $messages[0]['id'] ?? 0;
-    }
-
-    /**
      * Подготовка к следующему шагу.
      *
      * @return void
      */
-    private function prepareForNextStep()
+    protected function prepareForNextStep()
     {
         usleep(self::SLEEP_TIME * 1000000);
         gc_collect_cycles();
-    }
-
-    /**
-     * Вывод цветного текста.
-     *
-     * @param string $message
-     * @param string|null $type
-     * @return void
-     */
-    protected function echo(string $message, string $type = null)
-    {
-        $whiteColor = "\033[0m";
-
-        $color = match ($type) {
-            'error' => "\033[31m",
-            'success' => "\033[32m",
-            'warning' => "\033[33m",
-            'info' => "\033[36m",
-            'description' => "\033[37m",
-            default => "\033[0m",
-        };
-
-        echo "{$color}{$message}{$whiteColor}\n";
     }
 
     /**
@@ -1290,5 +1224,28 @@ class Collector
         $stmt->execute([$chatId]);
 
         $this->echo('Устанавливаем флаг полной загрузки старых сообщений.', 'description');
+    }
+
+    /**
+     * Вывод цветного текста.
+     *
+     * @param string $message
+     * @param string|null $type
+     * @return void
+     */
+    protected function echo(string $message, string $type = null)
+    {
+        $whiteColor = "\033[0m";
+
+        $color = match ($type) {
+            'error' => "\033[31m",
+            'success' => "\033[32m",
+            'warning' => "\033[33m",
+            'info' => "\033[36m",
+            'description' => "\033[37m",
+            default => $whiteColor,
+        };
+
+        echo "{$color}{$message}{$whiteColor}\n";
     }
 }

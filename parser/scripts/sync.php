@@ -3,11 +3,8 @@
 
 require_once __DIR__ . '/../src/Collector.php';
 
-// Парсим аргументы командной строки
-// $options = getopt('', ['limit:', 'chat:']);
 $options = getopt('', ['chat:']);
 
-// $maxMessages = intval($options['limit'] ?? 0); // 0 = без ограничений
 $specificChat = $options['chat'] ?? null;
 
 $config = [
@@ -25,9 +22,7 @@ $config = [
 try {
     $collector = new Collector($config['db'], $config['api_url'], $config['media_path']);
 
-    // Получаем чаты для синхронизации
     if ($specificChat) {
-        // Проверяем, существует ли чат
         $chat = $collector->getChatById($specificChat);
 
         if (!$chat) {
@@ -51,17 +46,13 @@ try {
         echo "- чат \"{$chat['title']}\" (ID: {$chat['id']})\n";
     }
 
-    // echo "Лимит сообщений: $maxMessages.\n";
-
     foreach ($chats as $chat) {
         try {
-            // $collector->syncChat($chat['id'], $maxMessages);
             $collector->syncChat($chat['id']);
         } catch (Exception $e) {
             echo "Ошибка синхронизации чата \"{$chat['title']}\" (ID: {$chat['id']}): " . $e->getMessage() . ".\n";
         }
 
-        // Задержка между чатами
         sleep(Collector::SLEEP_TIME);
     }
 } catch (Exception $e) {
