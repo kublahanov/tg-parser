@@ -195,12 +195,16 @@ function formatMessage($text)
                 <?php endif; ?>
 
                 <?php //if ($msg['media_count'] > 0): ?>
-                <!--    <div class="message-media">-->
-                <!--        <a href="message.php?chat_id=--><?php //= $msg['chat_id'] ?><!--&msg_id=--><?php //= $msg['id'] ?><!--"-->
-                <!--           class="media-link">-->
-                <!--            🖼️ Медиа (--><?php //= $msg['media_count'] ?><!--)-->
-                <!--        </a>-->
-                <!--    </div>-->
+                <?php
+                    /*
+                    <div class="message-media">
+                        <a href="message.php?chat_id=<?= $msg['chat_id'] ?>&msg_id=<?= $msg['id'] ?>"
+                           class="media-link">
+                            🖼️ Медиа (<?= $msg['media_count'] ?>)
+                        </a>
+                    </div>
+                    */
+                ?>
                 <?php //endif; ?>
 
                 <?php if ($msg['reply_to_msg_id']): ?>
