@@ -6,7 +6,7 @@ $config = [
     'db' => [
         'host' => getenv('DB_HOST') ?: 'mysql',
         'port' => getenv('DB_PORT') ?: 3306,
-        'dbname' => getenv('DB_NAME') ?: 'telegram_archive',
+        'dbname' => getenv('DB_NAME') ?: 'parser',
         'user' => getenv('DB_USER') ?: 'root',
         'password' => getenv('DB_PASSWORD') ?: '',
     ],
