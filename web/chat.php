@@ -177,14 +177,17 @@ function formatMessage($text)
                 <div class="message-header">
                     <span class="message-id">#<?= $msg['id'] ?></span>
                     <span class="message-date"><?= date('d.m.Y H:i:s', strtotime($msg['date'])) ?></span>
+
                     <?php if ($msg['edit_date']): ?>
-                        <span class="edited">(ред. <?= date('d.m.Y H:i', strtotime($msg['edit_date'])) ?>)</span>
+                        <span class="edited" title="Отредактировано">📝 <?= date('d.m.Y H:i', strtotime($msg['edit_date'])) ?></span>
                     <?php endif; ?>
+
                     <?php if ($msg['views']): ?>
-                        <span class="views">👁️ <?= number_format($msg['views']) ?></span>
+                        <span class="views" title="Просмотрено">👁️ <?= number_format($msg['views']) ?></span>
                     <?php endif; ?>
+
                     <?php if ($msg['forwards']): ?>
-                        <span class="forwards">🔄 <?= number_format($msg['forwards']) ?></span>
+                        <span class="forwards" title="Перенаправлено">🔄 <?= number_format($msg['forwards']) ?></span>
                     <?php endif; ?>
                 </div>
 
