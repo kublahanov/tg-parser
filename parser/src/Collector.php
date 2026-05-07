@@ -328,7 +328,7 @@ class Collector
                          * Если достигнут лимит сообщений, указанный для чата
                          * - значит загрузка окончена.
                          */
-                        if ($addOffset + self::MESSAGE_LIMIT > $messagesLimit) {
+                        if ($addOffset + self::MESSAGE_LIMIT * 2 > $messagesLimit) {
                             $hasMoreOld = false;
 
                             $this->echo('Достигнут лимит сообщений, указанный для чата, прерываем.', 'warning');
@@ -369,6 +369,7 @@ class Collector
                     $this->echo("Загрузка старых сообщений (от ID $minMessageId).");
 
                     $addOffset = 0; // Смещение для каждого из циклов запроса
+                    // $addOffset = 297600; // TODO: Тестовое смещение.
 
                     /**
                      * Цикл загрузки.
@@ -437,7 +438,7 @@ class Collector
                          * Если достигнут лимит сообщений, указанный для чата
                          * - значит загрузка окончена.
                          */
-                        if ($addOffset + self::MESSAGE_LIMIT > $messagesLimit) {
+                        if ($addOffset + self::MESSAGE_LIMIT * 2 > $messagesLimit) {
                             $hasMoreOld = false;
 
                             $this->echo('Достигнут лимит сообщений, указанный для чата, прерываем.', 'warning');
@@ -534,7 +535,7 @@ class Collector
                      * Если достигнут лимит сообщений, указанный для чата
                      * - значит загрузка окончена.
                      */
-                    if ($addOffset + self::MESSAGE_LIMIT > $messagesLimit) {
+                    if ($addOffset + self::MESSAGE_LIMIT * 2 > $messagesLimit) {
                         $hasMoreOld = false;
 
                         $this->echo('Достигнут лимит сообщений, указанный для чата, прерываем.', 'warning');

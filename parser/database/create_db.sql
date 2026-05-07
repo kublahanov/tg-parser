@@ -10,11 +10,11 @@ CREATE TABLE IF NOT EXISTS chats
     participants_count INT                                             NULL,
     is_archived        TINYINT(1) DEFAULT 0 NOT NULL,
     is_old_uploaded    TINYINT(1) DEFAULT 0 NOT NULL,
+    is_forum           TINYINT(1) DEFAULT 0 NOT NULL,
     created_at         TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at         TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     INDEX idx_username (username)
-) ENGINE = InnoDB
-  DEFAULT CHARSET = utf8mb4;
+);
 
 CREATE TABLE IF NOT EXISTS messages
 (
@@ -38,8 +38,7 @@ CREATE TABLE IF NOT EXISTS messages
     INDEX idx_from (from_id),
     INDEX idx_topic (topic_id),
     INDEX idx_media (has_media)
-) ENGINE = InnoDB
-  DEFAULT CHARSET = utf8mb4;
+);
 
 CREATE TABLE IF NOT EXISTS media
 (
@@ -63,8 +62,7 @@ CREATE TABLE IF NOT EXISTS media
         REFERENCES messages (chat_id, id) ON DELETE CASCADE,
     INDEX idx_downloaded (downloaded),
     INDEX idx_file_unique (file_unique_id)
-) ENGINE = InnoDB
-  DEFAULT CHARSET = utf8mb4;
+);
 
 CREATE TABLE IF NOT EXISTS sync_log
 (
@@ -78,5 +76,20 @@ CREATE TABLE IF NOT EXISTS sync_log
     error_message    TEXT                         NULL,
     INDEX idx_chat_status (chat_id, status),
     INDEX idx_finished (finished_at)
-) ENGINE = InnoDB
-  DEFAULT CHARSET = utf8mb4;
+);
+
+CREATE TABLE IF NOT EXISTS forum_topics
+(
+    id            BIGINT       NOT NULL, -- topic_id
+    chat_id       BIGINT       NOT NULL, -- ID чата
+    title         VARCHAR(255) NOT NULL, -- название темы
+    date          INT          NOT NULL, -- дата создания
+    icon_color    INT          NULL,     -- цвет иконки [citation:1]
+    icon_emoji_id BIGINT       NULL,     -- ID кастомного эмодзи [citation:1]
+    is_closed     TINYINT(1) DEFAULT 0 NOT NULL,
+    is_pinned     TINYINT(1) DEFAULT 0 NOT NULL,
+    created_at    TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at    TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    PRIMARY KEY (chat_id, id),
+    FOREIGN KEY (chat_id) REFERENCES chats (id) ON DELETE CASCADE
+);

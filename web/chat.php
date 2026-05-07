@@ -1,7 +1,5 @@
 <?php
 
-// echo '<pre>';
-
 require_once __DIR__ . '/../src/Collector.php';
 
 $config = [
@@ -13,9 +11,6 @@ $config = [
         'password' => getenv('DB_PASSWORD') ?: '',
     ],
 ];
-
-// echo 'Config: ' . PHP_EOL;
-// var_dump($config);
 
 $pdo = new PDO(
     "mysql:host={$config['db']['host']};port={$config['db']['port']};dbname={$config['db']['dbname']};charset=utf8mb4",
@@ -36,34 +31,9 @@ $stmt = $pdo->prepare("
 $stmt->execute([$chatId]);
 $chat = $stmt->fetch();
 
-// echo PHP_EOL;
-// echo 'Chat: ' . $chat['title'] . PHP_EOL;
-// var_dump($chat);
-
 if (!$chat) {
     die("Chat not found");
 }
-
-// echo PHP_EOL;
-// echo 'Limit & offset: ' . PHP_EOL;
-// var_dump([$perPage, $offset]);
-
-// Сообщения с пагинацией
-// $stmt = $pdo->prepare("
-//     SELECT
-//         m.* --,
-//         -- (
-//         --     SELECT COUNT(*)
-//         --     FROM media
-//         --     WHERE
-//         --         message_chat_id = m.chat_id
-//         --         AND message_id = m.id
-//         -- ) as media_count
-//     FROM messages m
-//     WHERE m.chat_id = $chatId
-//     ORDER BY m.date DESC
-//     LIMIT $perPage OFFSET $offset
-// ");
 
 $stmt = $pdo->prepare("
     SELECT *
@@ -73,17 +43,9 @@ $stmt = $pdo->prepare("
     LIMIT $perPage OFFSET $offset
 ");
 
-// $stmt->bindValue(':chat_id', $chatId, PDO::PARAM_INT);
-// $stmt->bindValue(':limit', $perPage, PDO::PARAM_INT);
-// $stmt->bindValue(':offset', $offset, PDO::PARAM_INT);
 $stmt->execute();
 $messages = $stmt->fetchAll();
 $errors = $stmt->errorInfo();
-
-// echo PHP_EOL;
-// echo 'Messages: ' . PHP_EOL;
-// var_dump($messages);
-// var_dump($errors);
 
 // Общее количество сообщений
 $stmt = $pdo->prepare("
@@ -105,11 +67,6 @@ $totalPages = ceil($totalMessages / $perPage);
 // $stmt->execute([$chatId]);
 // $recentMedia = $stmt->fetchAll();
 $recentMedia = null;
-
-// echo PHP_EOL;
-// echo 'Recent media: ' . PHP_EOL;
-// var_dump($recentMedia);
-// exit;
 
 function formatMessage($text)
 {
