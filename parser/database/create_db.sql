@@ -88,6 +88,10 @@ CREATE TABLE IF NOT EXISTS forum_topics
     icon_emoji_id BIGINT       NULL,     -- ID кастомного эмодзи [citation:1]
     is_closed     TINYINT(1) DEFAULT 0 NOT NULL,
     is_pinned     TINYINT(1) DEFAULT 0 NOT NULL,
+    is_hidden     TINYINT(1) DEFAULT 0 NOT NULL,
+    is_short      TINYINT(1) DEFAULT 0 NOT NULL,
+    is_shadow     TINYINT(1) DEFAULT 0 NOT NULL,
+    is_creator    TINYINT(1) DEFAULT 0 NOT NULL,
     created_at    TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at    TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     PRIMARY KEY (chat_id, id),

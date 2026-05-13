@@ -599,6 +599,133 @@ class Collector
     }
 
     /**
+     * Синхронизация тем форума.
+     *
+     * @param int $chatId ID чата
+     * @return array
+     * @throws Exception
+     */
+    public function syncForumTopics($chatId)
+    {
+        // Проверяем, что чат существует и является супергруппой
+        $stmt = $this->pdo->prepare("
+            SELECT id, title, peer_type, is_forum
+            FROM chats
+            WHERE id = ?
+        ");
+
+        $stmt->execute([$chatId]);
+        $chat = $stmt->fetch();
+
+        if (!$chat) {
+            throw new Exception("Чат с ID $chatId не найден!");
+        }
+
+        // Если чат не форум, выходим
+        if (($chat['peer_type'] !== 'supergroup') || !($chat['is_forum'] ?? false)) {
+            $this->echo("Чат \"{$chat['title']}\" не является форумом!", 'error');
+
+            return [
+                'added' => 0,
+                'total' => 0,
+            ];
+        }
+
+        $this->echo("Синхронизация заголовков для чата \"{$chat['title']}\".");
+
+        $added = 0;
+        $offsetTopic = 0;
+        $hasMore = true;
+
+        while ($hasMore) {
+            $params = [
+                'channel' => $chatId,
+                'limit' => self::MESSAGE_LIMIT,
+                'offset_id' => 0,
+                'offset_date' => 0,
+                'offset_topic' => $offsetTopic,
+            ];
+
+            $response = $this->apiRequest('channels.getForumTopics', $params);
+            $topics = $response['topics'] ?? [];
+            $count = $response['count'] ?? 0;
+
+            if (empty($topics)) {
+                $hasMore = false;
+                break;
+            }
+
+            foreach ($topics as $topic) {
+                $this->saveForumTopic($chatId, $topic);
+                $added++;
+            }
+
+            $this->echo("Загружено " . count($topics) . " заголовков (всего: $added).", 'info');
+
+            // Обновляем offset для следующей страницы
+            $lastTopic = end($topics);
+            $offsetTopic = $lastTopic['id'] ?? 0;
+
+            if (count($topics) < $limit || $added >= $count) {
+                $hasMore = false;
+            }
+
+            sleep(self::SLEEP_TIME);
+        }
+
+        $this->echo("Завершено! Добавлено $added заголовков.", 'success');
+
+        return [
+            'added' => $added,
+            'total' => $count ?? $added,
+        ];
+    }
+
+    /**
+     * Сохранение темы форума в БД.
+     *
+     * @param int $chatId ID чата
+     * @param array $topic Данные темы из API
+     * @return void
+     */
+    protected function saveForumTopic($chatId, $topic)
+    {
+        $stmt = $this->pdo->prepare("
+            INSERT INTO forum_topics (
+                id, chat_id, title, date, icon_color, icon_emoji_id,
+                is_closed, is_pinned, is_hidden, is_short, is_shadow, is_creator
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ON DUPLICATE KEY UPDATE
+                title = VALUES(title),
+                icon_color = VALUES(icon_color),
+                icon_emoji_id = VALUES(icon_emoji_id),
+                is_closed = VALUES(is_closed),
+                is_pinned = VALUES(is_pinned),
+                is_hidden = VALUES(is_hidden),
+                is_short = VALUES(is_short),
+                is_shadow = VALUES(is_shadow),
+                is_creator = VALUES(is_creator),
+                updated_at = NOW()
+        ");
+
+        $stmt->execute([
+            $topic['id'],
+            $chatId,
+            $topic['title'] ?? '',
+            $topic['date'] ?? time(),
+            $topic['icon_color'] ?? null,
+            $topic['icon_emoji_id'] ?? null,
+            $topic['closed'] ?? false,
+            $topic['pinned'] ?? false,
+            $topic['hidden'] ?? false,
+            $topic['short'] ?? false,
+            $topic['shadow'] ?? false,
+            $topic['creator'] ?? false
+        ]);
+    }
+
+    /**
      * Сохранение сообщения.
      *
      * @param $chatId
