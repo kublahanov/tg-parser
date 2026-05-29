@@ -19,6 +19,7 @@ $pdo = new PDO(
 );
 
 $chatId = $_GET['id'] ?? 0;
+$topicId = intval($_GET['topic'] ?? 0);
 $page = max(1, intval($_GET['page'] ?? 1));
 $perPage = 50;
 $offset = ($page - 1) * $perPage;
@@ -32,7 +33,7 @@ $stmt->execute([$chatId]);
 $chat = $stmt->fetch();
 
 if (!$chat) {
-    die("Chat not found");
+    die("Чат с таким ID не найден!");
 }
 
 $stmt = $pdo->prepare("

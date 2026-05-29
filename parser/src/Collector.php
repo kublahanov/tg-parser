@@ -5,8 +5,9 @@
  */
 class Collector
 {
-    public const MESSAGE_LIMIT = 100; // Лимит сообщений в рамках одного цикла загрузки
     public const SLEEP_TIME = 2; // Время ожидания между циклами загрузки (сек.)
+    public const MESSAGE_LIMIT = 100; // Лимит сообщений в рамках одного цикла загрузки
+    public const FORUM_TOPIC_CHUNK_SIZE = 20; // Лимит тематик форумов в рамках одного запроса к АПИ
 
     private $pdo;
     private $apiUrl;
@@ -599,15 +600,15 @@ class Collector
     }
 
     /**
-     * Синхронизация тем форума.
+     * Синхронизация тем форума через прямой запрос по ID.
      *
      * @param int $chatId ID чата
      * @return array
      * @throws Exception
      */
-    public function syncForumTopics($chatId)
+    public function syncForumTopicsById($chatId)
     {
-        // Проверяем, что чат существует и является супергруппой
+        // Проверяем, что чат существует
         $stmt = $this->pdo->prepare("
             SELECT id, title, peer_type, is_forum
             FROM chats
@@ -633,51 +634,85 @@ class Collector
 
         $this->echo("Синхронизация заголовков для чата \"{$chat['title']}\".");
 
-        $added = 0;
-        $offsetTopic = 0;
-        $hasMore = true;
+        // Получаем уникальные topic_id из сообщений
+        $stmt = $this->pdo->prepare("
+            SELECT DISTINCT topic_id
+            FROM messages
+            WHERE
+                chat_id = ?
+                AND topic_id IS NOT NULL
+                AND topic_id > 0
+            ORDER BY topic_id
+        ");
 
-        while ($hasMore) {
+        $stmt->execute([$chatId]);
+        $topicIds = $stmt->fetchAll(PDO::FETCH_COLUMN);
+
+        if (empty($topicIds)) {
+            $this->echo("Не найдено ни одного заголовка в таблице сообщений.", 'warning');
+
+            return [
+                'added' => 0,
+                'total' => 0,
+            ];
+        }
+
+        $this->echo('Найдено ' . count($topicIds) . ' уникальных заголовков.', 'info');
+
+        $added = 0;
+        $updated = 0;
+
+        // Загружаем темы пакетами по 100 (макс 100 за раз)
+        $chunks = array_chunk($topicIds, self::FORUM_TOPIC_CHUNK_SIZE);
+
+        foreach ($chunks as $chunk) {
             $params = [
                 'peer' => $chatId,
-                'limit' => self::MESSAGE_LIMIT,
-                'offset_id' => 0,
-                'offset_date' => 0,
-                'offset_topic' => $offsetTopic,
+                'topics' => $chunk
             ];
 
-            $response = $this->apiRequest('messages.getForumTopics', $params);
+            $response = $this->apiRequest('messages.getForumTopicsByID', $params);
             $topics = $response['topics'] ?? [];
-            $count = $response['count'] ?? 0;
-
-            if (empty($topics)) {
-                $hasMore = false;
-                break;
-            }
 
             foreach ($topics as $topic) {
+                if ($topic['_'] !== 'forumTopic') {
+                    $this->echo("Тема с ID {$topic['id']} удалена. Пропускаем.", 'warning');
+
+                    continue;
+                }
+
                 $this->saveForumTopic($chatId, $topic);
                 $added++;
             }
 
-            $this->echo("Загружено " . count($topics) . " заголовков (всего: $added).", 'info');
-
-            // Обновляем offset для следующей страницы
-            $lastTopic = end($topics);
-            $offsetTopic = $lastTopic['id'] ?? 0;
-
-            // if ($added > $count) {
-            //     $hasMore = false;
-            // }
+            $this->echo("Загружено заголовков: $added.", 'info');
 
             sleep(self::SLEEP_TIME);
         }
 
-        $this->echo("Завершено! Добавлено $added заголовков.", 'success');
+        // Обновляем статистику (количество сообщений в каждой теме)
+        $stmt = $this->pdo->prepare("
+            UPDATE forum_topics ft
+            SET messages_count = (
+                SELECT COUNT(*)
+                FROM messages m
+                WHERE m.chat_id = ft.chat_id AND m.topic_id = ft.id
+            ),
+            last_message_date = (
+                SELECT MAX(date)
+                FROM messages m
+                WHERE m.chat_id = ft.chat_id AND m.topic_id = ft.id
+            )
+            WHERE ft.chat_id = ?
+        ");
+
+        $stmt->execute([$chatId]);
+
+        $this->echo("Завершено! Добавлено заголовков: $added, обновлена статистика.", 'success');
 
         return [
             'added' => $added,
-            'total' => $count ?? $added,
+            'total' => count($topicIds),
         ];
     }
 
@@ -1227,7 +1262,7 @@ class Collector
         }
 
         $this->echo('---', 'description');
-        $this->echo("Запрос: $url.", 'description');
+        $this->echo('Запрос: ' . rawurldecode($url) . '.', 'description');
         $this->echo('---', 'description');
 
         $ch = curl_init($url);

@@ -53,7 +53,7 @@ try {
 
     foreach ($chats as $chat) {
         try {
-            $result = $collector->syncForumTopics($chat['id']);
+            $result = $collector->syncForumTopicsById($chat['id']);
             echo "- чат \"{$chat['title']}\" (ID: {$chat['id']}), добавлено заголовков: {$result['added']}.\n";
         } catch (Exception $e) {
             echo "Ошибка синхронизации чата \"{$chat['title']}\" (ID: {$chat['id']}): " . $e->getMessage() . ".\n";
