@@ -639,14 +639,14 @@ class Collector
 
         while ($hasMore) {
             $params = [
-                'channel' => $chatId,
+                'peer' => $chatId,
                 'limit' => self::MESSAGE_LIMIT,
                 'offset_id' => 0,
                 'offset_date' => 0,
                 'offset_topic' => $offsetTopic,
             ];
 
-            $response = $this->apiRequest('channels.getForumTopics', $params);
+            $response = $this->apiRequest('messages.getForumTopics', $params);
             $topics = $response['topics'] ?? [];
             $count = $response['count'] ?? 0;
 
@@ -666,9 +666,9 @@ class Collector
             $lastTopic = end($topics);
             $offsetTopic = $lastTopic['id'] ?? 0;
 
-            if (count($topics) < $limit || $added >= $count) {
-                $hasMore = false;
-            }
+            // if ($added > $count) {
+            //     $hasMore = false;
+            // }
 
             sleep(self::SLEEP_TIME);
         }
@@ -693,9 +693,9 @@ class Collector
         $stmt = $this->pdo->prepare("
             INSERT INTO forum_topics (
                 id, chat_id, title, date, icon_color, icon_emoji_id,
-                is_closed, is_pinned, is_hidden, is_short, is_shadow, is_creator
+                is_closed, is_pinned, is_hidden, is_short
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON DUPLICATE KEY UPDATE
                 title = VALUES(title),
                 icon_color = VALUES(icon_color),
@@ -704,8 +704,6 @@ class Collector
                 is_pinned = VALUES(is_pinned),
                 is_hidden = VALUES(is_hidden),
                 is_short = VALUES(is_short),
-                is_shadow = VALUES(is_shadow),
-                is_creator = VALUES(is_creator),
                 updated_at = NOW()
         ");
 
@@ -716,12 +714,10 @@ class Collector
             $topic['date'] ?? time(),
             $topic['icon_color'] ?? null,
             $topic['icon_emoji_id'] ?? null,
-            $topic['closed'] ?? false,
-            $topic['pinned'] ?? false,
-            $topic['hidden'] ?? false,
-            $topic['short'] ?? false,
-            $topic['shadow'] ?? false,
-            $topic['creator'] ?? false
+            $topic['closed'] ? (int) $topic['closed'] : 0,
+            $topic['pinned'] ? (int) $topic['pinned'] : 0,
+            $topic['hidden'] ? (int) $topic['hidden'] : 0,
+            $topic['short'] ? (int) $topic['short'] : 0,
         ]);
     }
 
