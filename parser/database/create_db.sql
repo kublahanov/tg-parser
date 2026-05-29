@@ -80,18 +80,20 @@ CREATE TABLE IF NOT EXISTS sync_log
 
 CREATE TABLE IF NOT EXISTS forum_topics
 (
-    id            BIGINT       NOT NULL, -- topic_id
-    chat_id       BIGINT       NOT NULL, -- ID чата
-    title         VARCHAR(255) NOT NULL, -- название темы
-    date          INT          NOT NULL, -- дата создания
-    icon_color    INT          NULL,     -- цвет иконки [citation:1]
-    icon_emoji_id BIGINT       NULL,     -- ID кастомного эмодзи [citation:1]
-    is_closed     TINYINT(1) DEFAULT 0 NOT NULL,
-    is_pinned     TINYINT(1) DEFAULT 0 NOT NULL,
-    is_hidden     TINYINT(1) DEFAULT 0 NOT NULL,
-    is_short      TINYINT(1) DEFAULT 0 NOT NULL,
-    created_at    TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    updated_at    TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    id             BIGINT       NOT NULL, -- topic_id
+    chat_id        BIGINT       NOT NULL, -- ID чата
+    title          VARCHAR(255) NOT NULL, -- название темы
+    date           INT          NOT NULL, -- дата создания
+    icon_color     INT          NULL,     -- цвет иконки [citation:1]
+    icon_emoji_id  BIGINT       NULL,     -- ID кастомного эмодзи [citation:1]
+    is_closed      TINYINT(1) DEFAULT 0 NOT NULL,
+    is_pinned      TINYINT(1) DEFAULT 0 NOT NULL,
+    is_hidden      TINYINT(1) DEFAULT 0 NOT NULL,
+    is_short       TINYINT(1) DEFAULT 0 NOT NULL,
+    messages_count INT NOT NULL DEFAULT 0,
+    last_message_date TIMESTAMP NULL,
+    created_at     TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at     TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     PRIMARY KEY (chat_id, id),
     FOREIGN KEY (chat_id) REFERENCES chats (id) ON DELETE CASCADE
 );
