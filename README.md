@@ -12,4 +12,5 @@
 ## Ссылки
 
 - [Документация TelegramApiServer](README.TelegramApiServer.md),
-- [Описательный алгоритм работы парсера](README.Parser.md).
+- [Описательный алгоритм работы парсера](README.Parser.md),
+- [Документация MadelineProto](https://docs.madelineproto.xyz/API_docs/methods/) ↗.

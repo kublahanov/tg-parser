@@ -4,7 +4,7 @@
         "Read more about it at https://getcomposer.org/doc/01-basic-usage.md#installing-dependencies",
         "This file is @generated automatically"
     ],
-    "content-hash": "943b7f6849887142f37e17d5c228f2ce",
+    "content-hash": "9b6a71db7ef3d4e4b9169438798e94f8",
     "packages": [
         {
             "name": "amphp/amp",
@@ -2584,16 +2584,16 @@
         },
         {
             "name": "danog/madelineproto",
-            "version": "dev-v8-tas",
+            "version": "v8.x-dev",
             "source": {
                 "type": "git",
                 "url": "https://github.com/xtrime-ru/MadelineProto.git",
-                "reference": "544b01220b09ea144dec5d0e8871fdda3b3891e1"
+                "reference": "ce3ccebc34909c3f943c039e02903c4086b79930"
             },
             "dist": {
                 "type": "zip",
-                "url": "https://api.github.com/repos/xtrime-ru/MadelineProto/zipball/544b01220b09ea144dec5d0e8871fdda3b3891e1",
-                "reference": "544b01220b09ea144dec5d0e8871fdda3b3891e1",
+                "url": "https://api.github.com/repos/xtrime-ru/MadelineProto/zipball/ce3ccebc34909c3f943c039e02903c4086b79930",
+                "reference": "ce3ccebc34909c3f943c039e02903c4086b79930",
                 "shasum": ""
             },
             "require": {
@@ -2653,6 +2653,7 @@
                 "phpunit/phpunit": "^9.6.29",
                 "quasarstream/webrtc": "^1.0",
                 "revolt/event-loop-adapter-react": "^1.1.1",
+                "sebastian/diff": "^4.0",
                 "symfony/yaml": "^6.4.26",
                 "vimeo/psalm": "dev-master"
             },
@@ -2665,6 +2666,7 @@
                 "ext-primemodule": "Install the primemodule and FFI extensions to speed up MadelineProto (https://prime.madelineproto.xyz)",
                 "ext-uv": "Install the uv extension to greatly speed up MadelineProto!"
             },
+            "default-branch": true,
             "type": "library",
             "autoload": {
                 "psr-4": {
@@ -2761,7 +2763,7 @@
                 "video"
             ],
             "support": {
-                "source": "https://github.com/xtrime-ru/MadelineProto/tree/v8-tas"
+                "source": "https://github.com/xtrime-ru/MadelineProto/tree/v8"
             },
             "funding": [
                 {
@@ -2769,7 +2771,7 @@
                     "url": "https://github.com/danog"
                 }
             ],
-            "time": "2026-03-04T21:59:49+00:00"
+            "time": "2026-05-08T09:42:13+00:00"
         },
         {
             "name": "danog/primemodule",
@@ -7190,8 +7192,7 @@
     "aliases": [],
     "minimum-stability": "dev",
     "stability-flags": {
-        "amphp/dns": 20,
-        "danog/madelineproto": 20
+        "amphp/dns": 20
     },
     "prefer-stable": true,
     "prefer-lowest": false,
