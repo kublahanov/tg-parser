@@ -1,0 +1,31 @@
+services:
+
+  mysql:
+    extends:
+      file: docker-compose.base.yml
+      service: mysql
+    ports:
+      - "127.0.0.1:9507:3306"
+
+  web:
+    build: ./web
+    container_name: web
+    restart: unless-stopped
+    ports:
+      - "${WEB_PORT:-8080}:80"
+    volumes:
+      - ./web:/var/www/html
+      - ./media:/var/www/html/media
+      - ./parser/src:/var/www/src
+    environment:
+      - DB_HOST=mysql
+      - DB_PORT=3306
+      - DB_NAME=parser
+      - DB_USER=root
+      - DB_PASSWORD=
+    depends_on:
+      - mysql
+
+networks:
+  default:
+    name: telegram-api-server
