@@ -251,6 +251,44 @@ h1 {
     color: #3498db;
 }
 
+/* Состояние "нет сообщений" */
+.empty-state {
+    text-align: center;
+    padding: 60px 20px;
+    color: #6c757d;
+}
+
+.empty-icon {
+    font-size: 4em;
+    margin-bottom: 15px;
+}
+
+.topic-card .pinned-badge,
+.topic-card .closed-badge {
+    font-size: 0.7em;
+    margin-left: 5px;
+}
+
+.message-topic {
+    font-size: 0.75em;
+    color: #6c757d;
+    background: #f0f0f0;
+    display: inline-block;
+    padding: 2px 8px;
+    border-radius: 12px;
+    margin: 5px 0;
+}
+
+.message-topic a {
+    color: #3498db;
+    text-decoration: none;
+}
+
+.message-topic .topic-id {
+    color: #adb5bd;
+    font-size: 0.85em;
+}
+
 /* Адаптивность */
 @media (max-width: 768px) {
     .chats-grid {
