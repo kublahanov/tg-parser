@@ -97,3 +97,8 @@ CREATE TABLE IF NOT EXISTS forum_topics
     PRIMARY KEY (chat_id, id),
     FOREIGN KEY (chat_id) REFERENCES chats (id) ON DELETE CASCADE
 );
+
+-- Индекс для таблицы messages для быстрых JOIN
+ALTER TABLE messages ADD INDEX idx_topic_id (topic_id);
+ALTER TABLE messages ADD INDEX idx_chat_topic (chat_id, topic_id);
+ALTER TABLE messages ADD INDEX idx_chat_date (chat_id, date);
