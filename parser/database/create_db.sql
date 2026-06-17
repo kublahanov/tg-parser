@@ -102,3 +102,6 @@ CREATE TABLE IF NOT EXISTS forum_topics
 ALTER TABLE messages ADD INDEX idx_topic_id (topic_id);
 ALTER TABLE messages ADD INDEX idx_chat_topic (chat_id, topic_id);
 ALTER TABLE messages ADD INDEX idx_chat_date (chat_id, date);
+
+-- Индекс для быстрой сортировки
+ALTER TABLE forum_topics ADD INDEX idx_pinned_last (is_pinned, last_message_date DESC);
