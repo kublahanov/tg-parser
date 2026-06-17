@@ -39,8 +39,6 @@ if (!$chat) {
 // Определяем, является ли чат форумом
 $isForum = ($chat['peer_type'] === 'supergroup') && ($chat['is_forum'] ?? false);
 
-var_dump($isForum);
-
 // Получаем список тем (только для форумов)
 $topics = [];
 $currentTopicTitle = 'Все сообщения';
@@ -48,17 +46,15 @@ $currentTopicTitle = 'Все сообщения';
 if ($isForum) {
     $stmt = $pdo->prepare("
         SELECT 
-            t.id,
-            t.title,
-            t.is_closed,
-            t.is_pinned,
-            COUNT(m.id) as messages_count,
-            MAX(m.date) as last_date
-        FROM forum_topics t
-        LEFT JOIN messages m ON m.chat_id = t.chat_id AND COALESCE(m.topic_id, 0) = t.id
-        WHERE t.chat_id = ?
-        GROUP BY t.id, t.title, t.is_closed, t.is_pinned
-        ORDER BY t.is_pinned DESC, last_date DESC
+            id,
+            title,
+            is_closed,
+            is_pinned,
+            messages_count,
+            last_message_date as last_date
+        FROM forum_topics
+        WHERE chat_id = ?
+        ORDER BY is_pinned DESC, last_message_date DESC
     ");
 
     $stmt->execute([$chatId]);
