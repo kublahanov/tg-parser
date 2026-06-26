@@ -54,8 +54,8 @@ services:
       - DB_PASSWORD=
     depends_on:
       - mysql
-      - parser
 
 networks:
   default:
-    name: telegram-api-server
+    # name: telegram-api-server
+    name: tg-parser

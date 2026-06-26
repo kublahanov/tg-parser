@@ -7,16 +7,15 @@ services:
     ports:
       - "127.0.0.1:9507:3306"
 
-  web:
-    build: ./web
-    container_name: web
+  web-api:
+    build: ./web-api
+    container_name: tg-parser-web-api
     restart: unless-stopped
     ports:
-      - "${WEB_PORT:-8080}:80"
+      - "127.0.0.1:8080:8080"
+      - "[::1]:8080:8080"
     volumes:
-      - ./web:/var/www/html
-      - ./media:/var/www/html/media
-      - ./parser/src:/var/www/src
+      - ./web-api:/app
     environment:
       - DB_HOST=mysql
       - DB_PORT=3306
@@ -28,4 +27,5 @@ services:
 
 networks:
   default:
-    name: telegram-api-server
+    # name: telegram-api-server
+    name: tg-parser
