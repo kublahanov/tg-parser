@@ -7,13 +7,30 @@ services:
     ports:
       - "127.0.0.1:9507:3306"
 
+#  web-api:
+#    build: ./web-api
+#    container_name: tg-parser-web-api
+#    restart: unless-stopped
+#    ports:
+#      - "127.0.0.1:8080:8080"
+#      - "[::1]:8080:8080"
+#    volumes:
+#      - ./web-api:/app
+#    environment:
+#      - DB_HOST=mysql
+#      - DB_PORT=3306
+#      - DB_NAME=parser
+#      - DB_USER=root
+#      - DB_PASSWORD=
+#    depends_on:
+#      - mysql
+
   web-api:
     build: ./web-api
     container_name: tg-parser-web-api
     restart: unless-stopped
     ports:
-      - "127.0.0.1:8080:8080"
-      - "[::1]:8080:8080"
+      - "8080:80"
     volumes:
       - ./web-api:/app
     environment:
