@@ -1,10 +1,12 @@
-FROM php:8.4-fpm
+FROM php:8.4-fpm-alpine
 
-RUN apt-get update && apt-get install -y \
+# Установка необходимых расширений через apk
+RUN apk add --no-cache \
     git \
     unzip \
+    zip \
     libzip-dev \
-    libonig-dev \
+    oniguruma-dev \
     && docker-php-ext-install \
     pdo_mysql \
     zip \
@@ -12,10 +14,12 @@ RUN apt-get update && apt-get install -y \
 
 WORKDIR /app
 
+# Установка Composer
 COPY composer.json ./
 RUN curl -sS https://getcomposer.org/installer | php -- --install-dir=/usr/local/bin --filename=composer
 RUN composer install --no-dev --optimize-autoloader
 
+# Копируем остальной код
 COPY . .
 
 EXPOSE 9000
