@@ -5,9 +5,10 @@ use Psr\Http\Message\ServerRequestInterface as Request;
 use Slim\App;
 
 return function (App $app) {
-    // --- Получение PDO соединения через замыкание ---
+    // Получение PDO соединения
     $getPdo = function () {
         static $pdo = null;
+
         if ($pdo === null) {
             $pdo = new PDO(
                 sprintf(
@@ -28,7 +29,7 @@ return function (App $app) {
         return $pdo;
     };
 
-    // --- Вспомогательная функция для JSON-ответов ---
+    // Вспомогательная функция для JSON-ответов
     $jsonResponse = function (Response $response, $data, int $status = 200): Response {
         $response->getBody()->write(json_encode($data, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES));
 
@@ -38,9 +39,31 @@ return function (App $app) {
         ;
     };
 
-    // ============================================
-    // 1. GET /api/v1/chats - Список всех чатов.
-    // ============================================
+    /**
+     * Корневой путь (список доступных методов).
+     */
+    $app->get('/', function (Request $request, Response $response) use ($jsonResponse) {
+        return $jsonResponse($response, [
+            'service' => 'Tg-parser API',
+            'version' => '1.0.0',
+            'endpoints' => [
+                '/api/v1/chats',
+                '/api/v1/chats/{id}',
+                '/api/v1/chats/{id}/stats',
+                '/api/v1/chats/{id}/messages?page=1&topic=0',
+                '/api/v1/chats/{id}/search?q=query&page=1',
+                '/api/v1/messages/{chatId}/{msgId}',
+                '/api/v1/media/{chatId}?limit=20',
+                '/api/v1/topics/{chatId}',
+                '/api/v1/topics/{chatId}/{topicId}/messages?page=1',
+                '/api/v1/stats',
+            ],
+        ]);
+    });
+
+    /**
+     * GET /api/v1/chats - Список всех чатов.
+     */
     $app->get('/api/v1/chats', function (Request $request, Response $response) use ($getPdo, $jsonResponse) {
         $pdo = $getPdo();
 
@@ -63,12 +86,18 @@ return function (App $app) {
 
         $chats = $pdo->query($sql)->fetchAll();
 
-        return $jsonResponse($response, ['success' => true, 'data' => $chats]);
+        return $jsonResponse(
+            $response,
+            [
+                'success' => true,
+                'data' => $chats,
+            ]
+        );
     });
 
-    // ============================================
-    // 2. GET /api/v1/chats/{id} - Информация о чате.
-    // ============================================
+    /**
+     * GET /api/v1/chats/{id} - Информация о чате.
+     */
     $app->get('/api/v1/chats/{id}', function (Request $request, Response $response, array $args) use ($getPdo, $jsonResponse) {
         $pdo = $getPdo();
 
@@ -83,15 +112,28 @@ return function (App $app) {
         $chat = $stmt->fetch();
 
         if (!$chat) {
-            return $jsonResponse($response, ['success' => false, 'error' => 'Chat not found'], 404);
+            return $jsonResponse(
+                $response,
+                [
+                    'success' => false,
+                    'error' => 'Chat not found',
+                ],
+                404
+            );
         }
 
-        return $jsonResponse($response, ['success' => true, 'data' => $chat]);
+        return $jsonResponse(
+            $response,
+            [
+                'success' => true,
+                'data' => $chat,
+            ]
+        );
     });
 
-    // ============================================
-    // 3. GET /api/v1/chats/{id}/stats - Статистика чата.
-    // ============================================
+    /**
+     * GET /api/v1/chats/{id}/stats - Статистика чата.
+     */
     $app->get('/api/v1/chats/{id}/stats', function (Request $request, Response $response, array $args) use ($getPdo, $jsonResponse) {
         $pdo = $getPdo();
 
@@ -106,16 +148,22 @@ return function (App $app) {
             WHERE chat_id = ?
         ";
 
-        $stmt = $pdo->prepare();
+        $stmt = $pdo->prepare($sql);
         $stmt->execute([$args['id']]);
         $stats = $stmt->fetch();
 
-        return $jsonResponse($response, ['success' => true, 'data' => $stats]);
+        return $jsonResponse(
+            $response,
+            [
+                'success' => true,
+                'data' => $stats,
+            ]
+        );
     });
 
-    // ============================================
-    // 4. GET /api/v1/chats/{id}/messages - Сообщения чата
-    // ============================================
+    /**
+     * GET /api/v1/chats/{id}/messages - Сообщения чата.
+     */
     $app->get('/api/v1/chats/{id}/messages', function (Request $request, Response $response, array $args) use ($getPdo, $jsonResponse) {
         $pdo = $getPdo();
         $id = $args['id'];
@@ -126,6 +174,7 @@ return function (App $app) {
         $offset = ($page - 1) * $perPage;
 
         $params = ['chat_id' => $id];
+
         $sql = "
             SELECT
                 m.*,
@@ -176,11 +225,94 @@ return function (App $app) {
         ]);
     });
 
-    // ============================================
-    // 5. GET /api/v1/messages/{chatId}/{msgId} - Одно сообщение
-    // ============================================
+    /**
+     * GET /api/v1/chats/{id}/search - Поиск по сообщениям.
+     */
+    $app->get('/api/v1/chats/{id}/search', function (Request $request, Response $response, array $args) use ($getPdo, $jsonResponse) {
+        $pdo = $getPdo();
+        $q = trim($request->getQueryParams()['q'] ?? '');
+
+        if (strlen($q) < 2) {
+            return $jsonResponse(
+                $response,
+                [
+                    'success' => false,
+                    'error' => 'Search query too short',
+                ],
+                400
+            );
+        }
+
+        $page = max(1, (int) ($request->getQueryParams()['page'] ?? 1));
+        $perPage = 50;
+        $offset = ($page - 1) * $perPage;
+        $searchTerm = '%' . $q . '%';
+
+        $sql = "
+            SELECT
+                m.*,
+                (
+                    SELECT COUNT(*)
+                    FROM media
+                    WHERE
+                        message_chat_id = m.chat_id
+                        AND message_id = m.id
+                ) as media_count
+            FROM messages m
+            WHERE
+                m.chat_id = :chatId
+                AND m.text LIKE :search
+        ";
+
+        $countSql = str_replace(
+            "
+                SELECT
+                    m.*,
+                    (
+                        SELECT COUNT(*)
+                        FROM media
+                        WHERE
+                            message_chat_id = m.chat_id
+                            AND message_id = m.id
+                    ) as media_count
+            ",
+            "SELECT COUNT(*)",
+            $sql
+        );
+
+        $stmt = $pdo->prepare($countSql);
+        $stmt->bindValue(':chatId', $args['id']);
+        $stmt->bindValue(':search', $searchTerm);
+        $stmt->execute();
+        $total = (int) $stmt->fetchColumn();
+
+        $sql .= " ORDER BY m.date DESC LIMIT :limit OFFSET :offset";
+        $stmt = $pdo->prepare($sql);
+        $stmt->bindValue(':chatId', $args['id']);
+        $stmt->bindValue(':search', $searchTerm);
+        $stmt->bindValue(':limit', $perPage, PDO::PARAM_INT);
+        $stmt->bindValue(':offset', $offset, PDO::PARAM_INT);
+        $stmt->execute();
+        $messages = $stmt->fetchAll();
+
+        return $jsonResponse($response, [
+            'success' => true,
+            'data' => [
+                'messages' => $messages,
+                'total' => $total,
+                'page' => $page,
+                'per_page' => $perPage,
+                'total_pages' => (int) ceil($total / $perPage),
+            ],
+        ]);
+    });
+
+    /**
+     * GET /api/v1/messages/{chatId}/{msgId} - Одно сообщение.
+     */
     $app->get('/api/v1/messages/{chatId}/{msgId}', function (Request $request, Response $response, array $args) use ($getPdo, $jsonResponse) {
         $pdo = $getPdo();
+
         $sql = "
             SELECT
                 m.*,
@@ -200,15 +332,28 @@ return function (App $app) {
         $message = $stmt->fetch();
 
         if (!$message) {
-            return $jsonResponse($response, ['success' => false, 'error' => 'Message not found'], 404);
+            return $jsonResponse(
+                $response,
+                [
+                    'success' => false,
+                    'error' => 'Message not found',
+                ],
+                404
+            );
         }
 
-        return $jsonResponse($response, ['success' => true, 'data' => $message]);
+        return $jsonResponse(
+            $response,
+            [
+                'success' => true,
+                'data' => $message,
+            ]
+        );
     });
 
-    // ============================================
-    // 6. GET /api/v1/media/{chatId} - Последние медиа чата
-    // ============================================
+    /**
+     * GET /api/v1/media/{chatId} - Последние медиа чата.
+     */
     $app->get('/api/v1/media/{chatId}', function (Request $request, Response $response, array $args) use ($getPdo, $jsonResponse) {
         $pdo = $getPdo();
         $limit = (int) ($request->getQueryParams()['limit'] ?? 20);
@@ -229,14 +374,21 @@ return function (App $app) {
         $stmt->execute();
         $media = $stmt->fetchAll();
 
-        return $jsonResponse($response, ['success' => true, 'data' => $media]);
+        return $jsonResponse(
+            $response,
+            [
+                'success' => true,
+                'data' => $media,
+            ]
+        );
     });
 
-    // ============================================
-    // 7. GET /api/v1/topics/{chatId} - Темы форума
-    // ============================================
+    /**
+     * GET /api/v1/topics/{chatId} - Темы форума.
+     */
     $app->get('/api/v1/topics/{chatId}', function (Request $request, Response $response, array $args) use ($getPdo, $jsonResponse) {
         $pdo = $getPdo();
+
         try {
             $sql = "
                 SELECT
@@ -259,19 +411,25 @@ return function (App $app) {
             $topics = [];
         }
 
-        return $jsonResponse($response, ['success' => true, 'data' => $topics]);
+        return $jsonResponse(
+            $response,
+            [
+                'success' => true,
+                'data' => $topics,
+            ]
+        );
     });
 
-    // ============================================
-    // 8. GET /api/v1/topics/{chatId}/{topicId}/messages - Сообщения темы
-    // ============================================
+    /**
+     * GET /api/v1/topics/{chatId}/{topicId}/messages - Сообщения темы.
+     */
     $app->get('/api/v1/topics/{chatId}/{topicId}/messages', function (Request $request, Response $response, array $args) use ($getPdo, $jsonResponse) {
         $pdo = $getPdo();
         $page = max(1, (int) ($request->getQueryParams()['page'] ?? 1));
         $perPage = 50;
         $offset = ($page - 1) * $perPage;
 
-        $params = ['chatId' => $args['chatId'], 'topicId' => $args['topicId']];
+        // Используем позиционные параметры для WHERE
         $sql = "
             SELECT
                 m.*,
@@ -284,25 +442,34 @@ return function (App $app) {
                 ) as media_count
             FROM messages m
             WHERE
-                m.chat_id = :chatId
-                AND COALESCE(m.topic_id, 0) = :topicId
+                m.chat_id = ?
+                AND COALESCE(m.topic_id, 0) = ?
         ";
 
         $countSql = str_replace(
-            "SELECT m.*, (SELECT COUNT(*) FROM media WHERE message_chat_id = m.chat_id AND message_id = m.id) as media_count",
+            "
+                SELECT
+                    m.*,
+                    (
+                        SELECT COUNT(*)
+                        FROM media
+                        WHERE
+                            message_chat_id = m.chat_id
+                            AND message_id = m.id
+                    ) as media_count
+            ",
             "SELECT COUNT(*)",
             $sql
         );
 
         $stmt = $pdo->prepare($countSql);
-        $stmt->execute($params);
+        $stmt->execute([$args['chatId'], $args['topicId']]);
         $total = (int) $stmt->fetchColumn();
 
-        $sql .= " ORDER BY m.date DESC LIMIT :limit OFFSET :offset";
+        // LIMIT и OFFSET вставляем напрямую (безопасно, так как числа)
+        $sql .= " ORDER BY m.date DESC LIMIT " . (int) $perPage . " OFFSET " . (int) $offset;
         $stmt = $pdo->prepare($sql);
-        $stmt->bindValue(':limit', $perPage, PDO::PARAM_INT);
-        $stmt->bindValue(':offset', $offset, PDO::PARAM_INT);
-        $stmt->execute($params);
+        $stmt->execute([$args['chatId'], $args['topicId']]); // Только два параметра
         $messages = $stmt->fetchAll();
 
         return $jsonResponse($response, [
@@ -317,9 +484,9 @@ return function (App $app) {
         ]);
     });
 
-    // ============================================
-    // 9. GET /api/v1/stats - Общая статистика
-    // ============================================
+    /**
+     * GET /api/v1/stats - Общая статистика.
+     */
     $app->get('/api/v1/stats', function (Request $request, Response $response) use ($getPdo, $jsonResponse) {
         $pdo = $getPdo();
 
@@ -333,83 +500,12 @@ return function (App $app) {
 
         $stats = $pdo->query($sql)->fetch();
 
-        return $jsonResponse($response, ['success' => true, 'data' => $stats]);
-    });
-
-    // ============================================
-    // 10. GET /api/v1/chats/{id}/search - Поиск по сообщениям
-    // ============================================
-    $app->get('/api/v1/chats/{id}/search', function (Request $request, Response $response, array $args) use ($getPdo, $jsonResponse) {
-        $pdo = $getPdo();
-        $q = trim($request->getQueryParams()['q'] ?? '');
-
-        if (strlen($q) < 2) {
-            return $jsonResponse($response, ['success' => false, 'error' => 'Search query too short'], 400);
-        }
-
-        $page = max(1, (int) ($request->getQueryParams()['page'] ?? 1));
-        $perPage = 50;
-        $offset = ($page - 1) * $perPage;
-        $searchTerm = '%' . $q . '%';
-
-        $params = ['chatId' => $args['id'], 'search' => $searchTerm];
-
-        $sql = "
-            SELECT
-                m.*,
-                (SELECT COUNT(*) FROM media WHERE message_chat_id = m.chat_id AND message_id = m.id) as media_count
-            FROM messages m
-            WHERE m.chat_id = :chatId AND m.text LIKE :search
-        ";
-
-        $countSql = str_replace(
-            "SELECT m.*, (SELECT COUNT(*) FROM media WHERE message_chat_id = m.chat_id AND message_id = m.id) as media_count",
-            "SELECT COUNT(*)",
-            $sql
+        return $jsonResponse(
+            $response,
+            [
+                'success' => true,
+                'data' => $stats
+            ]
         );
-
-        $stmt = $pdo->prepare($countSql);
-        $stmt->execute($params);
-        $total = (int) $stmt->fetchColumn();
-
-        $sql .= " ORDER BY m.date DESC LIMIT :limit OFFSET :offset";
-        $stmt = $pdo->prepare($sql);
-        $stmt->bindValue(':limit', $perPage, PDO::PARAM_INT);
-        $stmt->bindValue(':offset', $offset, PDO::PARAM_INT);
-        $stmt->execute($params);
-        $messages = $stmt->fetchAll();
-
-        return $jsonResponse($response, [
-            'success' => true,
-            'data' => [
-                'messages' => $messages,
-                'total' => $total,
-                'page' => $page,
-                'per_page' => $perPage,
-                'total_pages' => (int) ceil($total / $perPage),
-            ],
-        ]);
-    });
-
-    // ============================================
-    // Корневой путь (для проверки работы)
-    // ============================================
-    $app->get('/', function (Request $request, Response $response) use ($jsonResponse) {
-        return $jsonResponse($response, [
-            'service' => 'Telegram Archive API',
-            'version' => '1.0.0',
-            'endpoints' => [
-                '/api/v1/chats',
-                '/api/v1/chats/{id}',
-                '/api/v1/chats/{id}/stats',
-                '/api/v1/chats/{id}/messages?page=1&topic=0',
-                '/api/v1/chats/{id}/search?q=query&page=1',
-                '/api/v1/messages/{chatId}/{msgId}',
-                '/api/v1/media/{chatId}?limit=20',
-                '/api/v1/topics/{chatId}',
-                '/api/v1/topics/{chatId}/{topicId}/messages?page=1',
-                '/api/v1/stats',
-            ],
-        ]);
     });
 };
