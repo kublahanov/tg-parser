@@ -173,11 +173,40 @@ return function (App $app) {
         $perPage = 50;
         $offset = ($page - 1) * $perPage;
 
-        $params = ['chat_id' => $id];
+        // Простой подсчёт общего количества
+        $countSql = "
+            SELECT COUNT(*)
+            FROM messages m
+            WHERE m.chat_id = ?
+        ";
 
+        $countParams = [$id];
+
+        if ($topic > 0) {
+            $countSql .= " AND COALESCE(m.topic_id, 0) = ?";
+            $countParams[] = $topic;
+        }
+
+        $stmt = $pdo->prepare($countSql);
+        $stmt->execute($countParams);
+        $total = (int) $stmt->fetchColumn();
+
+        // Оптимизированный запрос на получение сообщений
         $sql = "
-            SELECT
-                m.*,
+            SELECT 
+                m.id,
+                m.chat_id,
+                m.topic_id,
+                m.from_id,
+                m.date,
+                m.text,
+                m.has_media,
+                m.views,
+                m.forwards,
+                m.reply_to_msg_id,
+                m.post_author,
+                m.edit_date,
+                m.raw_data,
                 (
                     SELECT COUNT(*)
                     FROM media
@@ -186,30 +215,20 @@ return function (App $app) {
                         AND message_id = m.id
                 ) as media_count
             FROM messages m
-            WHERE m.chat_id = :chat_id
+            WHERE m.chat_id = ?
         ";
 
+        $params = [$id];
+
         if ($topic > 0) {
-            $sql .= " AND COALESCE(m.topic_id, 0) = :topic";
-            $params['topic'] = $topic;
+            $sql .= " AND COALESCE(m.topic_id, 0) = ?";
+            $params[] = $topic;
         }
 
-        // Подсчёт общего количества
-        $countSql = str_replace(
-            "SELECT m.*, (SELECT COUNT(*) FROM media WHERE message_chat_id = m.chat_id AND message_id = m.id) as media_count",
-            "SELECT COUNT(*)",
-            $sql
-        );
+        // Явно указываем индексы и лимит
+        $sql .= " ORDER BY m.id DESC LIMIT " . (int) $perPage . " OFFSET " . (int) $offset;
 
-        $stmt = $pdo->prepare($countSql);
-        $stmt->execute($params);
-        $total = (int) $stmt->fetchColumn();
-
-        // Получение сообщений
-        $sql .= " ORDER BY m.date DESC LIMIT :limit OFFSET :offset";
         $stmt = $pdo->prepare($sql);
-        $stmt->bindValue(':limit', $perPage, PDO::PARAM_INT);
-        $stmt->bindValue(':offset', $offset, PDO::PARAM_INT);
         $stmt->execute($params);
         $messages = $stmt->fetchAll();
 
