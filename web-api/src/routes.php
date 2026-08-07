@@ -67,21 +67,31 @@ return function (App $app) {
     $app->get('/api/v1/chats', function (Request $request, Response $response) use ($getPdo, $jsonResponse) {
         $pdo = $getPdo();
 
+        // $sql = "
+        //     SELECT
+        //         c.id,
+        //         c.title,
+        //         c.username,
+        //         c.peer_type,
+        //         c.is_forum,
+        //         COUNT(m.id) as messages_count,
+        //         MIN(m.date) as first_message,
+        //         MAX(m.date) as last_message,
+        //         SUM(m.has_media) as media_count
+        //     FROM chats c
+        //     LEFT JOIN messages m ON c.id = m.chat_id
+        //     GROUP BY c.id
+        //     ORDER BY last_message DESC
+        // ";
+
         $sql = "
             SELECT
                 c.id,
                 c.title,
                 c.username,
                 c.peer_type,
-                c.is_forum,
-                COUNT(m.id) as messages_count,
-                MIN(m.date) as first_message,
-                MAX(m.date) as last_message,
-                SUM(m.has_media) as media_count
+                c.is_forum
             FROM chats c
-            LEFT JOIN messages m ON c.id = m.chat_id
-            GROUP BY c.id
-            ORDER BY last_message DESC
         ";
 
         $chats = $pdo->query($sql)->fetchAll();
@@ -91,6 +101,7 @@ return function (App $app) {
             [
                 'success' => true,
                 'data' => $chats,
+                // 'data' => [],
             ]
         );
     });
