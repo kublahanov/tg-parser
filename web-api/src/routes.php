@@ -150,8 +150,8 @@ return function (App $app) {
 
         $sql = "
             SELECT
-                COUNT(*) as total_messages,
-                COUNT(CASE WHEN has_media = 1 THEN 1 END) as media_messages,
+                COUNT(*) as messages_count,
+                COUNT(CASE WHEN has_media = 1 THEN 1 END) as media_count,
                 MIN(date) as first_message,
                 MAX(date) as last_message,
                 DATEDIFF(MAX(date), MIN(date)) as days_span
