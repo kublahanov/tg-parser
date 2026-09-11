@@ -25,6 +25,7 @@ services:
     restart: unless-stopped
     volumes:
       - ./web-api:/app
+      - ./media:/app/media
     environment:
       - DB_HOST=mysql
       - DB_PORT=3306

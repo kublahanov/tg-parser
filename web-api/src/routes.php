@@ -54,6 +54,7 @@ return function (App $app) {
                 '/api/v1/chats/{id}/search?q=query&page=1',
                 '/api/v1/messages/{chatId}/{msgId}',
                 '/api/v1/media/{chatId}?limit=20',
+                '/api/v1/media/file/{mediaId}',
                 '/api/v1/topics/{chatId}',
                 '/api/v1/topics/{chatId}/{topicId}/messages?page=1',
                 '/api/v1/stats',
@@ -243,6 +244,21 @@ return function (App $app) {
         $stmt->execute($params);
         $messages = $stmt->fetchAll();
 
+        foreach ($messages as &$msg) {
+            $stmtMedia = $pdo->prepare("
+                SELECT
+                    id, media_type, mime_type, file_name, file_path, 
+                    width, height, duration, file_size
+                FROM media 
+                WHERE message_chat_id = ? AND message_id = ? AND downloaded = 1
+            ");
+
+            $stmtMedia->execute([$msg['chat_id'], $msg['id']]);
+            $msg['media'] = $stmtMedia->fetchAll();
+        }
+
+        unset($msg);
+
         return $jsonResponse($response, [
             'success' => true,
             'data' => [
@@ -411,6 +427,42 @@ return function (App $app) {
                 'data' => $media,
             ]
         );
+    });
+
+    /**
+     * GET /api/v1/media/file/{mediaId} - Отдача файла медиа.
+     */
+    $app->get('/api/v1/media/file/{mediaId}', function (Request $request, Response $response, array $args) use ($getPdo) {
+        $pdo = $getPdo();
+
+        $stmt = $pdo->prepare("
+            SELECT file_path, mime_type, file_name
+            FROM media
+            WHERE id = ? AND downloaded = 1
+        ");
+
+        $stmt->execute([$args['mediaId']]);
+        $media = $stmt->fetch();
+
+        if (!$media || !$media['file_path']) {
+            return $response->withStatus(404);
+        }
+
+        $fullPath = './../media/' . $media['file_path'];
+
+        if (!file_exists($fullPath)) {
+            return $response->withStatus(404);
+        }
+
+        $stream = fopen($fullPath, 'rb');
+
+        $response = $response
+            ->withHeader('Content-Type', $media['mime_type'] ?: 'application/octet-stream')
+            ->withHeader('Cache-Control', 'public, max-age=86400')
+            ->withBody(new \Slim\Psr7\Stream($stream))
+        ;
+
+        return $response;
     });
 
     /**
