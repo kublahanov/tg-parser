@@ -38,3 +38,6 @@ services:
 networks:
   default:
     name: tg-parser
+    ipam:
+      config:
+        - subnet: 172.20.0.0/24

@@ -57,5 +57,7 @@ services:
 
 networks:
   default:
-    # name: telegram-api-server
     name: tg-parser
+    ipam:
+      config:
+        - subnet: 172.20.0.0/24
