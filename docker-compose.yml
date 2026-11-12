@@ -1,63 +1,64 @@
-services:
-
-  api:
-    extends:
-      file: docker-compose.base.yml
-      service: api
-    ports:
-      - "127.0.0.1:9503:9503"
-    command:
-      - "-s=session"
-    depends_on:
-      - mysql
-
-  mysql:
-    extends:
-      file: docker-compose.base.yml
-      service: mysql
-    ports:
-      - "127.0.0.1:9507:3306"
-
-  parser:
-    build: ./parser
-    container_name: parser
-    restart: unless-stopped
-    volumes:
-      - ./parser:/app
-      - ./media:/media  # Общая папка для медиа (если нужно)
-    environment:
-      - DB_HOST=mysql
-      - DB_PORT=3306
-      - DB_NAME=parser
-      - DB_USER=root
-      - DB_PASSWORD=
-      - API_URL=http://api:9503/api
-    depends_on:
-      - api
-      - mysql
-
-  web:
-    build: ./web
-    container_name: web
-    restart: unless-stopped
-    ports:
-      - "${WEB_PORT:-8080}:80"
-    volumes:
-      - ./web:/var/www/html
-      - ./media:/var/www/html/media
-      - ./parser/src:/var/www/src
-    environment:
-      - DB_HOST=mysql
-      - DB_PORT=3306
-      - DB_NAME=parser
-      - DB_USER=root
-      - DB_PASSWORD=
-    depends_on:
-      - mysql
-
-networks:
-  default:
-    name: tg-parser
-    ipam:
-      config:
-        - subnet: 172.20.0.0/24
+# @deprecated
+#services:
+#
+#  api:
+#    extends:
+#      file: docker-compose.base.yml
+#      service: api
+#    ports:
+#      - "127.0.0.1:9503:9503"
+#    command:
+#      - "-s=session"
+#    depends_on:
+#      - mysql
+#
+#  mysql:
+#    extends:
+#      file: docker-compose.base.yml
+#      service: mysql
+#    ports:
+#      - "127.0.0.1:9507:3306"
+#
+#  parser:
+#    build: ./parser
+#    container_name: parser
+#    restart: unless-stopped
+#    volumes:
+#      - ./parser:/app
+#      - ./media:/media  # Общая папка для медиа (если нужно)
+#    environment:
+#      - DB_HOST=mysql
+#      - DB_PORT=3306
+#      - DB_NAME=parser
+#      - DB_USER=root
+#      - DB_PASSWORD=
+#      - API_URL=http://api:9503/api
+#    depends_on:
+#      - api
+#      - mysql
+#
+#  web:
+#    build: ./web
+#    container_name: web
+#    restart: unless-stopped
+#    ports:
+#      - "${WEB_PORT:-8080}:80"
+#    volumes:
+#      - ./web:/var/www/html
+#      - ./media:/var/www/html/media
+#      - ./parser/src:/var/www/src
+#    environment:
+#      - DB_HOST=mysql
+#      - DB_PORT=3306
+#      - DB_NAME=parser
+#      - DB_USER=root
+#      - DB_PASSWORD=
+#    depends_on:
+#      - mysql
+#
+#networks:
+#  default:
+#    name: tg-parser
+#    ipam:
+#      config:
+#        - subnet: 172.20.0.0/24

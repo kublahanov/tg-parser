@@ -244,17 +244,32 @@ return function (App $app) {
         $stmt->execute($params);
         $messages = $stmt->fetchAll();
 
-        foreach ($messages as &$msg) {
+        $mediaByMessage = [];
+
+        if ($messages) {
+            $messageIds = array_column($messages, 'id');
+            $placeholders = implode(', ', array_fill(0, count($messageIds), '?'));
             $stmtMedia = $pdo->prepare("
                 SELECT
-                    id, media_type, mime_type, file_name, file_path,
+                    message_id, id, media_type, mime_type, file_name, file_path,
                     width, height, duration, file_size
-                FROM media 
-                WHERE message_chat_id = ? AND message_id = ? AND downloaded = 1
+                FROM media
+                WHERE message_chat_id = ?
+                  AND message_id IN ($placeholders)
+                  AND downloaded = 1
+                ORDER BY id
             ");
+            $stmtMedia->execute(array_merge([$id], $messageIds));
 
-            $stmtMedia->execute([$msg['chat_id'], $msg['id']]);
-            // $msg['media'] = $stmtMedia->fetchAll();
+            foreach ($stmtMedia->fetchAll() as $media) {
+                $messageId = (string) $media['message_id'];
+                unset($media['message_id']);
+                $mediaByMessage[$messageId][] = $media;
+            }
+        }
+
+        foreach ($messages as &$msg) {
+            $msg['media'] = $mediaByMessage[(string) $msg['id']] ?? [];
         }
 
         unset($msg);

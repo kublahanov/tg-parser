@@ -1,11 +1,40 @@
 services:
 
+  api:
+    extends:
+      file: docker-compose.base.yml
+      service: api
+    ports:
+      - "127.0.0.1:9503:9503"
+    command:
+      - "-s=session"
+    depends_on:
+      - mysql
+
   mysql:
     extends:
       file: docker-compose.base.yml
       service: mysql
     ports:
       - "127.0.0.1:9507:3306"
+
+  parser:
+    build: ./parser
+    container_name: parser
+    restart: unless-stopped
+    volumes:
+      - ./parser:/app
+      - ./media:/media  # Общая папка для медиа (если нужно)
+    environment:
+      - DB_HOST=mysql
+      - DB_PORT=3306
+      - DB_NAME=parser
+      - DB_USER=root
+      - DB_PASSWORD=
+      - API_URL=http://api:9503/api
+    depends_on:
+      - api
+      - mysql
 
   nginx:
     image: nginx:alpine
@@ -14,8 +43,8 @@ services:
     ports:
       - "${WEB_PORT:-8080}:80"
     volumes:
-      - ./web-api:/app
-      - ./web-api/nginx/default.conf:/etc/nginx/conf.d/default.conf
+      - ./web-api/public:/app/public:ro
+      - ./web-api/nginx/default.conf:/etc/nginx/conf.d/default.conf:ro
     depends_on:
       - web-api
 
