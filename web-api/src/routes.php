@@ -247,14 +247,14 @@ return function (App $app) {
         foreach ($messages as &$msg) {
             $stmtMedia = $pdo->prepare("
                 SELECT
-                    id, media_type, mime_type, file_name, file_path, 
+                    id, media_type, mime_type, file_name, file_path,
                     width, height, duration, file_size
                 FROM media 
                 WHERE message_chat_id = ? AND message_id = ? AND downloaded = 1
             ");
 
             $stmtMedia->execute([$msg['chat_id'], $msg['id']]);
-            $msg['media'] = $stmtMedia->fetchAll();
+            // $msg['media'] = $stmtMedia->fetchAll();
         }
 
         unset($msg);
