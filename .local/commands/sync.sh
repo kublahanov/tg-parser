@@ -1,12 +1,11 @@
 #!/bin/bash
 
-# Синхронизация сообщений в чатах
+# Синхронизация сообщений, авторов и тем форумов
 
-# По умолчанию: все чаты, сообщения с лимитом по-умолчанию
-docker compose exec parser php -d memory_limit=1024M scripts/sync.php
+# По умолчанию синхронизируются все активные чаты.
+# Один чат: bash .local/commands/sync.sh --chat=-1001432413295
 
-# Конкретный чат, сообщения с лимитом по-умолчанию
-#docker compose exec parser php -d memory_limit=1024M scripts/sync.php --chat=-1001432413295
+set -e
+cd "$(dirname "${BASH_SOURCE[0]}")/../.." || exit 1
 
-# Конкретный чат, сообщения с лимитом 10000
-#docker compose exec parser php -d memory_limit=1024M scripts/sync.php --chat=-1001432413295 --limit=10000
+docker compose -f docker-compose-web.yml exec -T parser php -d memory_limit=1024M scripts/sync.php "$@"

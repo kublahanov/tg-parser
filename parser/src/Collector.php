@@ -115,8 +115,8 @@ class Collector
             // Добавляем новый чат
             $stmt = $this->pdo->prepare(
                 "
-                INSERT INTO chats (id, peer_type, username, title, about)
-                VALUES (?, ?, ?, ?, ?)
+                INSERT INTO chats (id, peer_type, username, title, about, is_forum)
+                VALUES (?, ?, ?, ?, ?, ?)
             "
             );
 
@@ -126,6 +126,7 @@ class Collector
                 $chatTgData['username'] ?? null,
                 $chatTgData['title'] ?? 'Unknown',
                 $chatTgData['about'] ?? null,
+                (int) ($chatTgData['forum'] ?? false),
             ]);
 
             $this->echo(
@@ -158,7 +159,8 @@ class Collector
             SET
                 title = ?,
                 username = ?,
-                about = ?
+                about = ?,
+                is_forum = COALESCE(?, is_forum)
             WHERE id = ?
         ");
 
@@ -166,6 +168,7 @@ class Collector
             $chatTgData['title'] ?? 'Unknown',
             $chatTgData['username'] ?? null,
             $chatTgData['about'] ?? null,
+            isset($chatTgData['forum']) ? (int) $chatTgData['forum'] : null,
             $chatTgData['id'],
         ]);
 
@@ -283,6 +286,8 @@ class Collector
 
                         $response = $this->apiRequest('messages.getHistory', $params);
 
+                        $this->saveSenders($response);
+
                         $messages = $response['messages'] ?? [];
 
                         /**
@@ -329,7 +334,7 @@ class Collector
                          * Если достигнут лимит сообщений, указанный для чата
                          * - значит загрузка окончена.
                          */
-                        if ($addOffset + self::MESSAGE_LIMIT * 2 > $messagesLimit) {
+                        if ($addOffset >= $messagesLimit) {
                             $hasMoreOld = false;
 
                             $this->echo('Достигнут лимит сообщений, указанный для чата, прерываем.', 'warning');
@@ -385,6 +390,8 @@ class Collector
 
                         $response = $this->apiRequest('messages.getHistory', $params);
 
+                        $this->saveSenders($response);
+
                         $messages = $response['messages'] ?? [];
 
                         /**
@@ -439,7 +446,7 @@ class Collector
                          * Если достигнут лимит сообщений, указанный для чата
                          * - значит загрузка окончена.
                          */
-                        if ($addOffset + self::MESSAGE_LIMIT * 2 > $messagesLimit) {
+                        if ($addOffset >= $messagesLimit) {
                             $hasMoreOld = false;
 
                             $this->echo('Достигнут лимит сообщений, указанный для чата, прерываем.', 'warning');
@@ -492,6 +499,8 @@ class Collector
 
                     $response = $this->apiRequest('messages.getHistory', $params);
 
+                    $this->saveSenders($response);
+
                     $messages = $response['messages'] ?? [];
 
                     /**
@@ -536,7 +545,7 @@ class Collector
                      * Если достигнут лимит сообщений, указанный для чата
                      * - значит загрузка окончена.
                      */
-                    if ($addOffset + self::MESSAGE_LIMIT * 2 > $messagesLimit) {
+                    if ($addOffset >= $messagesLimit) {
                         $hasMoreOld = false;
 
                         $this->echo('Достигнут лимит сообщений, указанный для чата, прерываем.', 'warning');
@@ -572,7 +581,7 @@ class Collector
     public function getChatsForSync()
     {
         $stmt = $this->pdo->query("
-            SELECT id, title
+            SELECT id, title, peer_type, is_forum
             FROM chats
             WHERE is_archived = 0
         ");
@@ -589,7 +598,7 @@ class Collector
     public function getChatById($chatId)
     {
         $stmt = $this->pdo->prepare("
-            SELECT id, title
+            SELECT id, title, peer_type, is_forum
             FROM chats
             WHERE id = ?
         ");
@@ -754,6 +763,56 @@ class Collector
             $topic['hidden'] ? (int) $topic['hidden'] : 0,
             $topic['short'] ? (int) $topic['short'] : 0,
         ]);
+    }
+
+    /**
+     * Сохраняем имена отправителей из вспомогательных данных ответа Telegram.
+     */
+    protected function saveSenders(array $response): void
+    {
+        $stmt = $this->pdo->prepare("
+            INSERT INTO senders (id, display_name, username)
+            VALUES (?, ?, ?)
+            ON DUPLICATE KEY UPDATE
+                display_name = VALUES(display_name),
+                username = VALUES(username)
+        ");
+
+        foreach ($response['users'] ?? [] as $user) {
+            $name = trim(implode(' ', array_filter([
+                $user['first_name'] ?? '',
+                $user['last_name'] ?? '',
+            ], static fn ($part) => $part !== '')));
+
+            $name = $name ?: ($user['username'] ?? null);
+
+            if (isset($user['id']) && $name) {
+                $stmt->execute([$user['id'], $name, $user['username'] ?? null]);
+            }
+        }
+
+        foreach ($response['chats'] ?? [] as $chat) {
+            if (isset($chat['id']) && !empty($chat['title'])) {
+                $stmt->execute([$chat['id'], $chat['title'], $chat['username'] ?? null]);
+            }
+        }
+    }
+
+    /**
+     * Обновляет справочник отправителей для одной страницы истории без загрузки медиа.
+     */
+    public function syncSendersPage($chatId, int $offset, int $offsetId, int $limit = 100): int
+    {
+        $response = $this->apiRequest('messages.getHistory', [
+            'peer' => $chatId,
+            'limit' => $limit,
+            'add_offset' => $offset,
+            'offset_id' => $offsetId,
+        ]);
+
+        $this->saveSenders($response);
+
+        return count($response['messages'] ?? []);
     }
 
     /**
@@ -1261,32 +1320,31 @@ class Collector
             $url .= '?' . $query;
         }
 
-        $this->echo('---', 'description');
-        $this->echo('Запрос: ' . rawurldecode($url) . '.', 'description');
-        $this->echo('---', 'description');
+        while (true) {
+            $this->echo('---', 'description');
+            $this->echo('Запрос: ' . rawurldecode($url) . '.', 'description');
+            $this->echo('---', 'description');
 
-        $ch = curl_init($url);
-        curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
-        curl_setopt($ch, CURLOPT_TIMEOUT, 30);
-        curl_setopt($ch, CURLOPT_USERAGENT, 'TelegramParser/1.0');
+            $ch = curl_init($url);
+            curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+            curl_setopt($ch, CURLOPT_TIMEOUT, 30);
+            curl_setopt($ch, CURLOPT_USERAGENT, 'TelegramParser/1.0');
 
-        // var_dump(curl_getinfo($ch));
-        // exit;
+            $response = curl_exec($ch);
+            $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+            curl_close($ch);
 
-        $response = curl_exec($ch);
-        $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
-        curl_close($ch);
+            if ($httpCode === 200) {
+                break;
+            }
 
-        if ($httpCode !== 200) {
             $data = json_decode($response, true);
 
-            // Проверяем на flood wait (429 или FLOOD_WAIT в ошибках)
-            if (
-                isset($data['errors'][0]['message'])
+            if (isset($data['errors'][0]['message'])
                 && strpos($data['errors'][0]['message'], 'FLOOD_WAIT') !== false
             ) {
                 preg_match('/(\d+)/', $data['errors'][0]['message'], $matches);
-                $waitTime = $matches[1] ?? 30;
+                $waitTime = max(1, (int) ($matches[1] ?? 30));
 
                 $this->echo(
                     "⚠️ Контроль переполнения: ждём {$waitTime} сек. перед следующим запросом.",
@@ -1294,9 +1352,7 @@ class Collector
                 );
 
                 sleep($waitTime);
-
-                // Повторяем запрос
-                return $this->apiRequest($method, $params, $retryCount + 1);
+                continue;
             }
 
             throw new Exception("Ошибка АПИ: HTTP {$httpCode}.");

@@ -44,14 +44,25 @@ try {
         echo "- чат \"{$chat['title']}\" (ID: {$chat['id']})\n";
     }
 
+    $failed = false;
+
     foreach ($chats as $chat) {
         try {
             $collector->syncChat($chat['id']);
+
+            if ($chat['peer_type'] === 'supergroup' && (bool) $chat['is_forum']) {
+                $collector->syncForumTopicsById($chat['id']);
+            }
         } catch (Exception $e) {
             echo "Ошибка синхронизации чата \"{$chat['title']}\" (ID: {$chat['id']}): " . $e->getMessage() . ".\n";
+            $failed = true;
         }
 
         sleep(Collector::SLEEP_TIME);
+    }
+
+    if ($failed) {
+        exit(1);
     }
 } catch (Exception $e) {
     echo "Критическая ошибка: " . $e->getMessage() . ".\n";

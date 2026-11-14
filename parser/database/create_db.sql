@@ -16,6 +16,24 @@ CREATE TABLE IF NOT EXISTS chats
     INDEX idx_username (username)
 );
 
+CREATE TABLE IF NOT EXISTS senders
+(
+    id           BIGINT PRIMARY KEY,
+    display_name VARCHAR(512) NOT NULL,
+    username     VARCHAR(255) NULL,
+    updated_at   TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS sender_sync_state
+(
+    chat_id     BIGINT PRIMARY KEY,
+    offset_id   BIGINT NOT NULL,
+    next_offset INT NOT NULL DEFAULT 0,
+    is_complete TINYINT(1) NOT NULL DEFAULT 0,
+    updated_at  TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    FOREIGN KEY (chat_id) REFERENCES chats (id) ON DELETE CASCADE
+);
+
 CREATE TABLE IF NOT EXISTS messages
 (
     id              BIGINT          NOT NULL,

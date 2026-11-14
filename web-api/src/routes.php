@@ -216,7 +216,11 @@ return function (App $app) {
                 m.views,
                 m.forwards,
                 m.reply_to_msg_id,
-                m.post_author,
+                m.post_author AS telegram_post_author,
+                COALESCE(NULLIF(m.post_author, ''), s.display_name,
+                    CASE WHEN c.peer_type = 'channel' THEN c.title END) AS post_author,
+                COALESCE(NULLIF(m.post_author, ''), s.display_name,
+                    CASE WHEN c.peer_type = 'channel' THEN c.title END) AS author_name,
                 m.edit_date,
                 m.raw_data,
                 (
@@ -227,6 +231,8 @@ return function (App $app) {
                         AND message_id = m.id
                 ) as media_count
             FROM messages m
+            JOIN chats c ON c.id = m.chat_id
+            LEFT JOIN senders s ON s.id = m.from_id
             WHERE m.chat_id = ?
         ";
 

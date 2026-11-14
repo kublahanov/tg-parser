@@ -51,15 +51,22 @@ try {
 
     echo "Найдено чатов: " . count($chats) . ".\n";
 
+    $failed = false;
+
     foreach ($chats as $chat) {
         try {
             $result = $collector->syncForumTopicsById($chat['id']);
             echo "- чат \"{$chat['title']}\" (ID: {$chat['id']}), добавлено заголовков: {$result['added']}.\n";
         } catch (Exception $e) {
             echo "Ошибка синхронизации чата \"{$chat['title']}\" (ID: {$chat['id']}): " . $e->getMessage() . ".\n";
+            $failed = true;
         }
 
         sleep(2);
+    }
+
+    if ($failed) {
+        exit(1);
     }
 } catch (Exception $e) {
     echo "Критическая ошибка: " . $e->getMessage() . ".\n";
