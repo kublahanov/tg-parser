@@ -7,7 +7,6 @@ class Collector
 {
     public const SLEEP_TIME = 2; // Время ожидания между циклами загрузки (сек.)
     public const MESSAGE_LIMIT = 100; // Лимит сообщений в рамках одного цикла загрузки
-    public const FORUM_TOPIC_CHUNK_SIZE = 20; // Лимит тематик форумов в рамках одного запроса к АПИ
 
     private $pdo;
     private $apiUrl;
@@ -189,13 +188,7 @@ class Collector
      */
     public function syncChat($chatId)
     {
-        // Получаем информацию о чате
-        $stmt = $this->pdo->prepare("
-            SELECT id, title, is_old_uploaded
-            FROM chats
-            WHERE id = ?
-        ");
-
+        $stmt = $this->pdo->prepare("SELECT id, title, is_old_uploaded FROM chats WHERE id = ?");
         $stmt->execute([$chatId]);
         $chat = $stmt->fetch();
 
@@ -205,365 +198,87 @@ class Collector
 
         $this->echo("Обработка чата: \"{$chat['title']}\" (id: {$chat['id']}).");
 
-        $messagesAdded = 0; // Счётчик добавленных сообщений
-        $mediaDownloaded = 0; // Счётчик загруженных медиа
-
-        /**
-         * Пункт 1.
-         * Проверяем, общее число сообщений у выбранного чата.
-         */
-        $params = [
-            'peer' => $chatId,
-            'limit' => 1,
-            'add_offset' => 0,
-        ];
-
-        $response = $this->apiRequest('messages.getHistory', $params);
-
-        $messagesLimit = $response['count'] ?? 0;
-
-        /**
-         * Если АПИ вернуло нулевое число сообщений (общее)
-         * - значит чат ещё пуст, загрузка окончена.
-         */
-        if ($messagesLimit < 1) {
-            $this->echo('Число найденных в чате сообщений равно 0, прерываем.', 'warning');
-
-            $this->setChatIsOldUploaded($chatId);
-
-            return [
-                'messages_added' => $messagesAdded,
-                'media_downloaded' => $mediaDownloaded,
-            ];
-        }
-
-        $hasMoreOld = true; // Флаг необходимости загрузки старых сообщений
-        $hasMoreNew = true; // Флаг необходимости загрузки новых сообщений
+        $messagesAdded = 0;
+        $mediaDownloaded = 0;
+        $logId = $this->startSyncLog($chatId);
 
         try {
-            // Логируем начало синхронизации
-            $logId = $this->startSyncLog($chatId);
-
             if (!$chat['is_old_uploaded']) {
-                /**
-                 * Пункт 2.
-                 * Если у чата не истинен флаг полной загрузки старых сообщений
-                 * (is_old_uploaded == false) - начинаем загрузку старых сообщений.
-                 */
+                // После прерванной первой загрузки продолжаем строго раньше самого старого сообщения.
+                $stmt = $this->pdo->prepare('SELECT MIN(id) FROM messages WHERE chat_id = ?');
+                $stmt->execute([$chatId]);
+                $offsetId = (int) $stmt->fetchColumn();
+                $stopAtId = null;
                 $this->echo('Загрузка старых сообщений.', 'success');
-
-                /**
-                 * Проверяем, есть ли сообщения у выбранного чата.
-                 */
-                $stmt = $this->pdo->prepare("
-                    SELECT count(*) cnt
-                    FROM messages
-                    WHERE chat_id = ?
-                ");
-
-                $stmt->execute([$chatId]);
-                $stmtResult = $stmt->fetch();
-                $messagesCount = $stmtResult['cnt'] ?? 0;
-
-                if ($messagesCount < 1) {
-                    /**
-                     * Пункт 2.1.
-                     * Если сообщений нет - загружаем все, начиная с самого нового.
-                     */
-                    $this->echo('Сообщения не найдены, начинаем с самого нового.', 'info');
-
-                    $addOffset = 0; // Смещение для каждого из циклов запроса
-
-                    /**
-                     * Цикл загрузки.
-                     */
-                    while ($hasMoreOld) {
-                        $params = [
-                            'peer' => $chatId,
-                            'limit' => self::MESSAGE_LIMIT,
-                            'add_offset' => $addOffset,
-                        ];
-
-                        $response = $this->apiRequest('messages.getHistory', $params);
-
-                        $this->saveSenders($response);
-
-                        $messages = $response['messages'] ?? [];
-
-                        /**
-                         * Если АПИ вернуло пустой массив сообщений
-                         * - значит загрузка окончена.
-                         */
-                        if (empty($messages)) {
-                            $hasMoreOld = false;
-
-                            $this->echo('Список сообщений пуст, прерываем.', 'warning');
-
-                            $this->setChatIsOldUploaded($chatId);
-
-                            break;
-                        }
-
-                        foreach ($messages as $msg) {
-                            // Вывод прогресса каждые 10 сообщений
-                            if ($messagesAdded > 0 && ($messagesAdded % 10 == 0)) {
-                                $this->echo("  Обработка: $messagesAdded сообщений.");
-                            }
-
-                            $this->saveMessage($chatId, $msg);
-
-                            $messagesAdded++;
-
-                            if (isset($msg['media'])) {
-                                if ($this->processMedia($chatId, $msg['id'], $msg['media'])) {
-                                    $mediaDownloaded++;
-                                }
-                            }
-                        }
-
-                        $addOffset += self::MESSAGE_LIMIT;
-
-                        $this->echo("Загружено " . count($messages) . " сообщений.", 'info');
-
-                        // Задержка между запросами
-                        $this->echo("Пауза " . self::SLEEP_TIME . " сек. перед следующим циклом.", 'description');
-
-                        $this->prepareForNextStep();
-
-                        /**
-                         * Если достигнут лимит сообщений, указанный для чата
-                         * - значит загрузка окончена.
-                         */
-                        if ($addOffset >= $messagesLimit) {
-                            $hasMoreOld = false;
-
-                            $this->echo('Достигнут лимит сообщений, указанный для чата, прерываем.', 'warning');
-
-                            $this->setChatIsOldUploaded($chatId);
-
-                            break;
-                        }
-                    }
-                } else {
-                    /**
-                     * Пункт 2.2.
-                     * Если сообщения есть (т. е. чат "недогрузился" - возможно из-за ошибки)
-                     * - продолжаем загрузку от самого старого сообщения.
-                     */
-                    $this->echo(
-                        "Найдено сообщений: $messagesCount. Продолжаем загрузку от самого старого сообщения.",
-                        'info'
-                    );
-
-                    /**
-                     * Ищем минимальный ID сообщения среди загруженных.
-                     */
-                    $stmt = $this->pdo->prepare("
-                        SELECT min(id) min
-                        FROM messages
-                        WHERE chat_id = ?
-                    ");
-
-                    $stmt->execute([$chatId]);
-                    $stmtResult = $stmt->fetch();
-                    $minMessageId = $stmtResult['min'] ?? null;
-
-                    if (!$minMessageId) {
-                        throw new Exception("Ошибка получения минимального ID!");
-                    }
-
-                    $this->echo("Загрузка старых сообщений (от ID $minMessageId).");
-
-                    $addOffset = 0; // Смещение для каждого из циклов запроса
-                    // $addOffset = 297600; // TODO: Тестовое смещение.
-
-                    /**
-                     * Цикл загрузки.
-                     */
-                    while ($hasMoreOld) {
-                        $params = [
-                            'peer' => $chatId,
-                            'limit' => self::MESSAGE_LIMIT,
-                            'add_offset' => $addOffset,
-                            'max_id' => $minMessageId,
-                        ];
-
-                        $response = $this->apiRequest('messages.getHistory', $params);
-
-                        $this->saveSenders($response);
-
-                        $messages = $response['messages'] ?? [];
-
-                        /**
-                         * Если АПИ вернуло пустой массив сообщений
-                         * - продолжаем загрузку, так как вероятно не дошли до сообщений
-                         * с ID меньше минимального.
-                         */
-                        if (empty($messages)) {
-                            $this->echo(
-                                'Список сообщений пуст, так как, вероятно, не дошли до сообщений'
-                                . ' с ID меньше минимального. Продолжаем загрузку.',
-                                'warning'
-                            );
-
-                            $addOffset += self::MESSAGE_LIMIT;
-
-                            // Задержка между запросами
-                            $this->echo("Пауза " . self::SLEEP_TIME . " сек. перед следующим циклом.", 'description');
-
-                            $this->prepareForNextStep();
-
-                            continue;
-                        }
-
-                        foreach ($messages as $msg) {
-                            // Вывод прогресса каждые 10 сообщений
-                            if ($messagesAdded > 0 && ($messagesAdded % 10 == 0)) {
-                                $this->echo("  Обработка: $messagesAdded сообщений.");
-                            }
-
-                            $this->saveMessage($chatId, $msg);
-
-                            $messagesAdded++;
-
-                            if (isset($msg['media'])) {
-                                if ($this->processMedia($chatId, $msg['id'], $msg['media'])) {
-                                    $mediaDownloaded++;
-                                }
-                            }
-                        }
-
-                        $addOffset += self::MESSAGE_LIMIT;
-
-                        $this->echo("Загружено " . count($messages) . " сообщений.", 'info');
-
-                        // Задержка между запросами
-                        $this->echo("Пауза " . self::SLEEP_TIME . " сек. перед следующим циклом.", 'description');
-
-                        $this->prepareForNextStep();
-
-                        /**
-                         * Если достигнут лимит сообщений, указанный для чата
-                         * - значит загрузка окончена.
-                         */
-                        if ($addOffset >= $messagesLimit) {
-                            $hasMoreOld = false;
-
-                            $this->echo('Достигнут лимит сообщений, указанный для чата, прерываем.', 'warning');
-
-                            $this->setChatIsOldUploaded($chatId);
-
-                            break;
-                        }
-                    }
-                }
             } else {
-                /**
-                 * Пункт 3.
-                 * Если у чата истинен флаг полной загрузки старых сообщений
-                 * (is_old_uploaded == true) - начинаем загрузку новых сообщений.
-                 */
-                $this->echo('Загрузка новых сообщений.', 'success');
-
-                /**
-                 * Ищем максимальный ID сообщения среди загруженных.
-                 */
-                $stmt = $this->pdo->prepare("
-                        SELECT max(id) max
-                        FROM messages
-                        WHERE chat_id = ?
-                    ");
-
+                // Идём от новых сообщений к последнему уже сохранённому ID.
+                $stmt = $this->pdo->prepare('SELECT MAX(id) FROM messages WHERE chat_id = ?');
                 $stmt->execute([$chatId]);
-                $stmtResult = $stmt->fetch();
-                $maxMessageId = $stmtResult['max'] ?? null;
-
-                if (!$maxMessageId) {
-                    throw new Exception("Ошибка получения минимального ID!");
-                }
-
-                $this->echo("Загрузка новых сообщений (от ID $maxMessageId).");
-
-                $addOffset = 0; // Смещение для каждого из циклов запроса
-
-                /**
-                 * Цикл загрузки.
-                 */
-                while ($hasMoreNew) {
-                    $params = [
-                        'peer' => $chatId,
-                        'limit' => self::MESSAGE_LIMIT,
-                        'add_offset' => $addOffset,
-                        'min_id' => $maxMessageId,
-                    ];
-
-                    $response = $this->apiRequest('messages.getHistory', $params);
-
-                    $this->saveSenders($response);
-
-                    $messages = $response['messages'] ?? [];
-
-                    /**
-                     * Если АПИ вернуло пустой массив сообщений
-                     * - значит загрузка окончена.
-                     */
-                    if (empty($messages)) {
-                        $hasMoreOld = false;
-
-                        $this->echo('Список сообщений пуст, прерываем.', 'warning');
-
-                        break;
-                    }
-
-                    foreach ($messages as $msg) {
-                        // Вывод прогресса каждые 10 сообщений
-                        if ($messagesAdded > 0 && ($messagesAdded % 10 == 0)) {
-                            $this->echo("  Обработка: $messagesAdded сообщений.");
-                        }
-
-                        $this->saveMessage($chatId, $msg);
-
-                        $messagesAdded++;
-
-                        if (isset($msg['media'])) {
-                            if ($this->processMedia($chatId, $msg['id'], $msg['media'])) {
-                                $mediaDownloaded++;
-                            }
-                        }
-                    }
-
-                    $addOffset += self::MESSAGE_LIMIT;
-
-                    $this->echo("Загружено " . count($messages) . " сообщений.", 'info');
-
-                    // Задержка между запросами
-                    $this->echo("Пауза " . self::SLEEP_TIME . " сек. перед следующим циклом.", 'description');
-
-                    $this->prepareForNextStep();
-
-                    /**
-                     * Если достигнут лимит сообщений, указанный для чата
-                     * - значит загрузка окончена.
-                     */
-                    if ($addOffset >= $messagesLimit) {
-                        $hasMoreOld = false;
-
-                        $this->echo('Достигнут лимит сообщений, указанный для чата, прерываем.', 'warning');
-
-                        break;
-                    }
-                }
+                $stopAtId = (int) $stmt->fetchColumn();
+                $offsetId = 0;
+                $this->echo('Загрузка новых сообщений.', 'success');
             }
 
-            $this->echo(
-                "Завершено! Добавлено сообщений: $messagesAdded, файлов: $mediaDownloaded.",
-                'success'
-            );
+            while (true) {
+                $response = $this->apiRequest('messages.getHistory', [
+                    'peer' => $chatId,
+                    'limit' => self::MESSAGE_LIMIT,
+                    'offset_id' => $offsetId,
+                ]);
+
+                $messages = $response['messages'] ?? [];
+
+                if (!$messages) {
+                    if ($stopAtId === null || $stopAtId === 0) {
+                        $this->setChatIsOldUploaded($chatId);
+                    }
+
+                    break;
+                }
+
+                $lastMessage = end($messages);
+                $lastId = (int) ($lastMessage['id'] ?? 0);
+
+                if ($lastId <= 0 || ($offsetId > 0 && $lastId >= $offsetId)) {
+                    throw new Exception('История Telegram не продвинулась к более старым сообщениям.');
+                }
+
+                $this->saveSenders($response);
+                $reachedSavedHistory = false;
+
+                foreach ($messages as $msg) {
+                    if ($stopAtId !== null && $stopAtId > 0 && (int) ($msg['id'] ?? 0) <= $stopAtId) {
+                        $reachedSavedHistory = true;
+                        break;
+                    }
+
+                    if (empty($msg['id']) || !isset($msg['date']) || ($msg['_'] ?? '') === 'messageEmpty') {
+                        continue;
+                    }
+
+                    if ($this->saveMessage($chatId, $msg)) {
+                        $messagesAdded++;
+                    }
+
+                    if (isset($msg['media']) && $this->processMedia($chatId, $msg['id'], $msg['media'])) {
+                        $mediaDownloaded++;
+                    }
+                }
+
+                $this->echo('Получено ' . count($messages) . " сообщений, добавлено новых: $messagesAdded.", 'info');
+
+                if ($reachedSavedHistory) {
+                    break;
+                }
+
+                $offsetId = $lastId;
+                $this->prepareForNextStep();
+            }
 
             $this->finishSyncLog($logId, 'completed', $messagesAdded, $mediaDownloaded);
-        } catch (Exception $e) {
+            $this->echo("Завершено! Добавлено сообщений: $messagesAdded, скачано файлов: $mediaDownloaded.", 'success');
+        } catch (Throwable $e) {
             $this->finishSyncLog($logId, 'failed', $messagesAdded, $mediaDownloaded, $e->getMessage());
-
             throw $e;
         }
 
@@ -609,21 +324,15 @@ class Collector
     }
 
     /**
-     * Синхронизация тем форума через прямой запрос по ID.
+     * Синхронизация полного списка тем форума.
      *
      * @param int $chatId ID чата
      * @return array
      * @throws Exception
      */
-    public function syncForumTopicsById($chatId)
+    public function syncForumTopics($chatId)
     {
-        // Проверяем, что чат существует
-        $stmt = $this->pdo->prepare("
-            SELECT id, title, peer_type, is_forum
-            FROM chats
-            WHERE id = ?
-        ");
-
+        $stmt = $this->pdo->prepare('SELECT id, title, peer_type, is_forum FROM chats WHERE id = ?');
         $stmt->execute([$chatId]);
         $chat = $stmt->fetch();
 
@@ -631,85 +340,78 @@ class Collector
             throw new Exception("Чат с ID $chatId не найден!");
         }
 
-        // Если чат не форум, выходим
-        if (($chat['peer_type'] !== 'supergroup') || !($chat['is_forum'] ?? false)) {
-            $this->echo("Чат \"{$chat['title']}\" не является форумом!", 'error');
-
-            return [
-                'added' => 0,
-                'total' => 0,
-            ];
+        if ($chat['peer_type'] !== 'supergroup' || !(bool) $chat['is_forum']) {
+            throw new Exception("Чат \"{$chat['title']}\" не является форумом.");
         }
 
-        $this->echo("Синхронизация заголовков для чата \"{$chat['title']}\".");
-
-        // Получаем уникальные topic_id из сообщений
-        $stmt = $this->pdo->prepare("
-            SELECT DISTINCT topic_id
-            FROM messages
-            WHERE
-                chat_id = ?
-                AND topic_id IS NOT NULL
-                AND topic_id > 0
-            ORDER BY topic_id
-        ");
-
-        $stmt->execute([$chatId]);
-        $topicIds = $stmt->fetchAll(PDO::FETCH_COLUMN);
-
-        if (empty($topicIds)) {
-            $this->echo("Не найдено ни одного заголовка в таблице сообщений.", 'warning');
-
-            return [
-                'added' => 0,
-                'total' => 0,
-            ];
-        }
-
-        $this->echo('Найдено ' . count($topicIds) . ' уникальных заголовков.', 'info');
-
+        $this->echo("Синхронизация тем чата \"{$chat['title']}\".");
+        $offsetDate = 0;
+        $offsetId = 0;
+        $offsetTopic = 0;
+        $seen = [];
         $added = 0;
-        $updated = 0;
 
-        // Загружаем темы пакетами по 100 (макс 100 за раз)
-        $chunks = array_chunk($topicIds, self::FORUM_TOPIC_CHUNK_SIZE);
-
-        foreach ($chunks as $chunk) {
-            $params = [
+        while (true) {
+            $response = $this->apiRequest('messages.getForumTopics', [
                 'peer' => $chatId,
-                'topics' => $chunk
-            ];
+                'limit' => 100,
+                'offset_date' => $offsetDate,
+                'offset_id' => $offsetId,
+                'offset_topic' => $offsetTopic,
+            ]);
 
-            $response = $this->apiRequest('messages.getForumTopicsByID', $params);
             $topics = $response['topics'] ?? [];
 
-            foreach ($topics as $topic) {
-                if ($topic['_'] !== 'forumTopic') {
-                    $this->echo("Тема с ID {$topic['id']} удалена. Пропускаем.", 'warning');
+            if (!$topics) {
+                break;
+            }
 
+            $messageDates = [];
+
+            foreach ($response['messages'] ?? [] as $message) {
+                if (isset($message['id'], $message['date'])) {
+                    $messageDates[(int) $message['id']] = (int) $message['date'];
+                }
+            }
+
+            foreach ($topics as $topic) {
+                if (($topic['_'] ?? '') !== 'forumTopic' || !isset($topic['id']) || isset($seen[$topic['id']])) {
                     continue;
                 }
 
-                $this->saveForumTopic($chatId, $topic);
-                $added++;
+                $seen[$topic['id']] = true;
+
+                if ($this->saveForumTopic($chatId, $topic)) {
+                    $added++;
+                }
             }
 
-            $this->echo("Загружено заголовков: $added.", 'info');
+            $lastTopic = end($topics);
+            $lastId = (int) ($lastTopic['top_message'] ?? 0);
+            $lastTopicId = (int) ($lastTopic['id'] ?? 0);
+            $lastDate = $messageDates[$lastId] ?? 0;
 
-            sleep(self::SLEEP_TIME);
+            if (!$lastId || !$lastTopicId || !$lastDate
+                || ($offsetDate === $lastDate && $offsetId === $lastId && $offsetTopic === $lastTopicId)
+            ) {
+                throw new Exception('Не удалось продолжить загрузку списка тем форума.');
+            }
+
+            $offsetDate = $lastDate;
+            $offsetId = $lastId;
+            $offsetTopic = $lastTopicId;
+            $this->echo('Получено тем: ' . count($seen) . '.', 'info');
+            $this->prepareForNextStep();
         }
 
-        // Обновляем статистику (количество сообщений в каждой теме)
         $stmt = $this->pdo->prepare("
             UPDATE forum_topics ft
             SET messages_count = (
-                SELECT COUNT(*)
-                FROM messages m
+                SELECT COUNT(*) FROM messages m
                 WHERE m.chat_id = ft.chat_id AND m.topic_id = ft.id
             ),
             last_message_date = (
-                SELECT MAX(date)
-                FROM messages m
+                SELECT MAX(m.date) FROM messages m
                 WHERE m.chat_id = ft.chat_id AND m.topic_id = ft.id
             )
             WHERE ft.chat_id = ?
@@ -717,12 +419,15 @@ class Collector
 
         $stmt->execute([$chatId]);
 
-        $this->echo("Завершено! Добавлено заголовков: $added, обновлена статистика.", 'success');
+        $this->echo("Завершено! Получено тем: " . count($seen) . ", новых: $added.", 'success');
 
-        return [
-            'added' => $added,
-            'total' => count($topicIds),
-        ];
+        return ['added' => $added, 'total' => count($seen)];
+    }
+
+    // Совместимость с прежними вызовами.
+    public function syncForumTopicsById($chatId)
+    {
+        return $this->syncForumTopics($chatId);
     }
 
     /**
@@ -758,11 +463,13 @@ class Collector
             $topic['date'] ?? time(),
             $topic['icon_color'] ?? null,
             $topic['icon_emoji_id'] ?? null,
-            $topic['closed'] ? (int) $topic['closed'] : 0,
-            $topic['pinned'] ? (int) $topic['pinned'] : 0,
-            $topic['hidden'] ? (int) $topic['hidden'] : 0,
-            $topic['short'] ? (int) $topic['short'] : 0,
+            (int) ($topic['closed'] ?? false),
+            (int) ($topic['pinned'] ?? false),
+            (int) ($topic['hidden'] ?? false),
+            (int) ($topic['short'] ?? false),
         ]);
+
+        return $stmt->rowCount() === 1;
     }
 
     /**
@@ -801,18 +508,25 @@ class Collector
     /**
      * Обновляет справочник отправителей для одной страницы истории без загрузки медиа.
      */
-    public function syncSendersPage($chatId, int $offset, int $offsetId, int $limit = 100): int
+    public function syncSendersPage($chatId, int $offsetId, int $limit = 100): array
     {
         $response = $this->apiRequest('messages.getHistory', [
             'peer' => $chatId,
             'limit' => $limit,
-            'add_offset' => $offset,
             'offset_id' => $offsetId,
         ]);
 
         $this->saveSenders($response);
 
-        return count($response['messages'] ?? []);
+        $messages = $response['messages'] ?? [];
+        $lastMessage = $messages ? end($messages) : null;
+        $lastId = (int) ($lastMessage['id'] ?? $offsetId);
+
+        if ($messages && ($lastId <= 0 || $lastId >= $offsetId)) {
+            throw new Exception('История Telegram не продвинулась к более старым сообщениям.');
+        }
+
+        return ['count' => count($messages), 'last_id' => $lastId];
     }
 
     /**
@@ -829,7 +543,7 @@ class Collector
 
         if (!$messageId) {
             $this->echo('Внимание: Сообщение без ID, пропускаем.', 'warning');
-            return;
+            return false;
         }
 
         $text = $msg['message'] ?? '';
@@ -883,10 +597,16 @@ class Collector
                 ?, ?, ?
             )
             ON DUPLICATE KEY UPDATE
+                topic_id = VALUES(topic_id),
+                from_id = VALUES(from_id),
+                has_media = VALUES(has_media),
                 views = VALUES(views),
                 forwards = VALUES(forwards),
                 edit_date = VALUES(edit_date),
-                text = VALUES(text)
+                text = VALUES(text),
+                reply_to_msg_id = VALUES(reply_to_msg_id),
+                post_author = VALUES(post_author),
+                raw_data = VALUES(raw_data)
         ");
 
         $stmt->execute([
@@ -902,8 +622,10 @@ class Collector
             $forwards,
             $replyTo,
             $msg['post_author'] ?? null,
-            json_encode($msg, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_PRETTY_PRINT),
+            json_encode($msg, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
         ]);
+
+        return $stmt->rowCount() === 1;
     }
 
     /**
@@ -926,6 +648,30 @@ class Collector
 
         // Какие типы можно скачать как файлы
         $downloadableTypes = ['photo', 'video', 'document', 'audio', 'voice', 'sticker'];
+
+        $existingStmt = $this->pdo->prepare("
+            SELECT id, downloaded, file_path
+            FROM media
+            WHERE message_chat_id = ? AND message_id = ? AND media_type = ?
+            ORDER BY downloaded DESC, id
+            LIMIT 1
+        ");
+        $existingStmt->execute([$chatId, $messageId, $mediaType]);
+        $existing = $existingStmt->fetch();
+
+        if ($existing) {
+            if (!in_array($mediaType, $downloadableTypes, true)) {
+                return false;
+            }
+
+            if ($existing['downloaded'] && $existing['file_path']
+                && is_file($this->mediaBasePath . '/' . $existing['file_path'])
+            ) {
+                return false;
+            }
+
+            return $this->downloadMedia($existing['id'], $media);
+        }
 
         $stmt = $this->pdo->prepare("
             INSERT INTO media (
@@ -970,12 +716,9 @@ class Collector
 
         $mediaId = $this->pdo->lastInsertId();
 
-        // Скачиваем только если это файловый тип
-        if (in_array($mediaType, $downloadableTypes)) {
-            $this->downloadMedia($mediaId, $media);
-        }
-
-        return true;
+        return in_array($mediaType, $downloadableTypes, true)
+            ? $this->downloadMedia($mediaId, $media)
+            : false;
     }
 
     /**
@@ -983,10 +726,13 @@ class Collector
      *
      * @param $mediaId
      * @param $media
-     * @return void
+     * @return bool
      */
     protected function downloadMedia($mediaId, $media)
     {
+        $temporaryPath = null;
+        $output = null;
+
         try {
             // Получаем информацию о медиа из БД
             $stmt = $this->pdo->prepare("
@@ -1026,20 +772,34 @@ class Collector
                 mkdir($dir, 0755, true);
             }
 
-            // Скачиваем файл через API
+            // Пишем ответ сразу во временный файл, не загружая всё видео в память PHP.
+            $temporaryPath = $fullPath . '.' . $mediaId . '.' . getmypid() . '.part';
+            $output = fopen($temporaryPath, 'wb');
+
+            if ($output === false) {
+                throw new Exception("Не удалось открыть временный файл $temporaryPath.");
+            }
+
             $ch = curl_init("{$this->apiUrl}/downloadToResponse");
             curl_setopt($ch, CURLOPT_POST, true);
             curl_setopt($ch, CURLOPT_POSTFIELDS, json_encode(['media' => $media]));
             curl_setopt($ch, CURLOPT_HTTPHEADER, ['Content-Type: application/json']);
-            curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+            curl_setopt($ch, CURLOPT_FILE, $output);
             curl_setopt($ch, CURLOPT_TIMEOUT, 300);
 
-            $fileContent = curl_exec($ch);
+            $ok = curl_exec($ch);
             $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+            $curlError = curl_error($ch);
             curl_close($ch);
+            fclose($output);
+            $output = null;
 
-            if ($httpCode === 200 && $fileContent) {
-                file_put_contents($fullPath, $fileContent);
+            if ($ok && $httpCode === 200 && filesize($temporaryPath) > 0) {
+                if (!rename($temporaryPath, $fullPath)) {
+                    throw new Exception("Не удалось сохранить файл $relativePath.");
+                }
+
+                $temporaryPath = null;
 
                 // Обновляем запись в БД
                 $stmt = $this->pdo->prepare("
@@ -1051,10 +811,71 @@ class Collector
                 $stmt->execute([$relativePath, $mediaId]);
 
                 $this->echo("Скачано: $relativePath.", 'description');
+
+                return true;
             }
-        } catch (Exception $e) {
-            error_log("Скачивание не удалось: " . $e->getMessage() . ".\n");
+
+            throw new Exception("TelegramApiServer не вернул файл: HTTP $httpCode. $curlError");
+        } catch (Throwable $e) {
+            if (is_resource($output)) {
+                fclose($output);
+            }
+
+            if ($temporaryPath && is_file($temporaryPath)) {
+                unlink($temporaryPath);
+            }
+
+            error_log('Скачивание не удалось: ' . $e->getMessage() . ".\n");
+
+            return false;
         }
+    }
+
+    /**
+     * Повторяет скачивание ранее не полученных файлов без создания новых записей.
+     */
+    public function retryMissingMedia(int $limit = 100, $chatId = null, int $afterId = 0): array
+    {
+        $sql = "
+            SELECT med.id, msg.raw_data
+            FROM media med
+            JOIN messages msg ON msg.chat_id = med.message_chat_id AND msg.id = med.message_id
+            WHERE med.downloaded = 0
+              AND med.id > ?
+              AND med.media_type IN ('photo', 'video', 'document', 'audio', 'voice', 'sticker')
+        ";
+
+        $params = [$afterId];
+
+        if ($chatId !== null) {
+            $sql .= ' AND med.message_chat_id = ?';
+            $params[] = $chatId;
+        }
+
+        $sql .= ' ORDER BY med.id LIMIT ' . max(1, $limit);
+        $stmt = $this->pdo->prepare($sql);
+        $stmt->execute($params);
+
+        $attempted = 0;
+        $downloaded = 0;
+        $lastId = $afterId;
+
+        foreach ($stmt->fetchAll() as $row) {
+            $lastId = (int) $row['id'];
+            $message = json_decode($row['raw_data'] ?? '', true);
+
+            if (empty($message['media'])) {
+                continue;
+            }
+
+            $attempted++;
+
+            if ($this->downloadMedia($row['id'], $message['media'])) {
+                $downloaded++;
+            }
+        }
+
+        return ['attempted' => $attempted, 'downloaded' => $downloaded, 'last_id' => $lastId];
     }
 
     /**
@@ -1171,7 +992,7 @@ class Collector
 
                 if ($attrType === 'documentAttributeAudio') {
                     // Проверяем, голосовое или музыка
-                    return $attr['voice'] ? 'voice' : 'audio';
+                    return ($attr['voice'] ?? false) ? 'voice' : 'audio';
                 }
 
                 if ($attrType === 'documentAttributeSticker') {
@@ -1209,13 +1030,15 @@ class Collector
     {
         // Фото
         if ($type === 'photo') {
-            $sizes = $media['sizes'] ?? [];
-            $maxSize = end($sizes);
+            $photo = $media['photo'] ?? $media;
+            $sizes = $photo['sizes'] ?? [];
+            $maxSize = $sizes ? end($sizes) : [];
 
             return [
-                'id' => $media['id'] ?? null,
-                'unique_id' => $media['access_hash'] ?? null,
+                'id' => $photo['id'] ?? null,
+                'unique_id' => $photo['access_hash'] ?? null,
                 'size' => $maxSize['size'] ?? null,
+                'mime' => 'image/jpeg',
                 'width' => $maxSize['w'] ?? null,
                 'height' => $maxSize['h'] ?? null,
             ];
@@ -1359,6 +1182,10 @@ class Collector
         }
 
         $data = json_decode($response, true);
+
+        if (!is_array($data) || ($data['success'] ?? true) === false) {
+            throw new Exception('TelegramApiServer вернул неуспешный или некорректный ответ.');
+        }
 
         // TelegramApiServer возвращает данные в формате {"success":true, "response":...}
         if (isset($data['success']) && $data['success'] === true && isset($data['response'])) {

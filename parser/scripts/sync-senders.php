@@ -55,9 +55,11 @@ foreach ($chatIds as $chatId) {
     $offsetId = (int) $progress['offset_id'] ?: (int) $maxId + 1;
 
     for ($page = 0; $page < $maxPages; $page++) {
-        $count = $collector->syncSendersPage($chatId, $offset, $offsetId);
+        $result = $collector->syncSendersPage($chatId, $offsetId);
+        $count = $result['count'];
+        $offsetId = $result['last_id'];
         $offset += $count;
-        $complete = $count < 100;
+        $complete = $count === 0;
 
         $save = $pdo->prepare('INSERT INTO sender_sync_state (chat_id, offset_id, next_offset, is_complete)
             VALUES (?, ?, ?, ?) ON DUPLICATE KEY UPDATE

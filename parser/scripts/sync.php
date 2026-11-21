@@ -51,9 +51,9 @@ try {
             $collector->syncChat($chat['id']);
 
             if ($chat['peer_type'] === 'supergroup' && (bool) $chat['is_forum']) {
-                $collector->syncForumTopicsById($chat['id']);
+                $collector->syncForumTopics($chat['id']);
             }
-        } catch (Exception $e) {
+        } catch (Throwable $e) {
             echo "Ошибка синхронизации чата \"{$chat['title']}\" (ID: {$chat['id']}): " . $e->getMessage() . ".\n";
             $failed = true;
         }
@@ -64,7 +64,7 @@ try {
     if ($failed) {
         exit(1);
     }
-} catch (Exception $e) {
+} catch (Throwable $e) {
     echo "Критическая ошибка: " . $e->getMessage() . ".\n";
     exit(1);
 }

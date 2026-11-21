@@ -1,10 +1,8 @@
 #!/bin/bash
 
-# Информация о медиа с ID=1
-docker compose exec parser php scripts/show-media.php 1 info
+# Информация о медиа: bash .local/commands/show-media.sh <ID> [info|path]
 
-# Получить полный путь к файлу
-docker compose exec parser php scripts/show-media.php 1 path
+set -e
+cd "$(dirname "${BASH_SOURCE[0]}")/../.." || exit 1
 
-# Открыть файл (на хосте)
-docker compose exec parser php scripts/show-media.php 1 open
+docker compose -f docker-compose-web.yml exec -T parser php scripts/show-media.php "$@"
