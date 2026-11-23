@@ -40,7 +40,7 @@ class Collector
             ]
         );
 
-        $this->pdo->exec("SET time_zone = '+03:00'");
+        $this->pdo->exec("SET time_zone = '+00:00'");
     }
 
     /**
@@ -550,11 +550,11 @@ class Collector
 
         // 2. Дата
         $date = isset($msg['date'])
-            ? date('Y-m-d H:i:s', $msg['date'])
+            ? gmdate('Y-m-d H:i:s', $msg['date'])
             : null;
 
         $editDate = isset($msg['edit_date'])
-            ? date('Y-m-d H:i:s', $msg['edit_date'])
+            ? gmdate('Y-m-d H:i:s', $msg['edit_date'])
             : null;
 
         // 3. From_id может быть в разных форматах
