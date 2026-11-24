@@ -32,6 +32,7 @@ services:
       - DB_USER=root
       - DB_PASSWORD=
       - API_URL=http://api:9503/api
+      - MEDIA_MIN_FREE_GB=20
     depends_on:
       - api
       - mysql

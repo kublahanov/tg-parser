@@ -11,6 +11,9 @@ class Collector
     private $pdo;
     private $apiUrl;
     private $mediaBasePath;
+    private $mediaMinFreeBytes;
+    private $mediaDiskWarningShown = false;
+    private $mediaDeferredCount = 0;
 
     /**
      * @param array $dbConfig Параметры подключения к БД
@@ -21,6 +24,8 @@ class Collector
     {
         $this->apiUrl = rtrim($apiUrl, '/');
         $this->mediaBasePath = rtrim($mediaPath, '/');
+        $minFreeGb = getenv('MEDIA_MIN_FREE_GB');
+        $this->mediaMinFreeBytes = (int) ((is_numeric($minFreeGb) ? max(0, (float) $minFreeGb) : 20) * 1024 ** 3);
 
         $dsn = sprintf(
             'mysql:host=%s;port=%s;dbname=%s;charset=utf8mb4',
@@ -200,6 +205,7 @@ class Collector
 
         $messagesAdded = 0;
         $mediaDownloaded = 0;
+        $mediaDeferredBefore = $this->mediaDeferredCount;
         $logId = $this->startSyncLog($chatId);
 
         try {
@@ -277,6 +283,12 @@ class Collector
 
             $this->finishSyncLog($logId, 'completed', $messagesAdded, $mediaDownloaded);
             $this->echo("Завершено! Добавлено сообщений: $messagesAdded, скачано файлов: $mediaDownloaded.", 'success');
+
+            $mediaDeferred = $this->mediaDeferredCount - $mediaDeferredBefore;
+
+            if ($mediaDeferred > 0) {
+                $this->echo("Отложено файлов из-за нехватки места: $mediaDeferred.", 'warning');
+            }
         } catch (Throwable $e) {
             $this->finishSyncLog($logId, 'failed', $messagesAdded, $mediaDownloaded, $e->getMessage());
             throw $e;
@@ -285,6 +297,7 @@ class Collector
         return [
             'messages_added' => $messagesAdded,
             'media_downloaded' => $mediaDownloaded,
+            'media_deferred' => $mediaDeferred,
         ];
     }
 
@@ -772,6 +785,12 @@ class Collector
                 mkdir($dir, 0755, true);
             }
 
+            if (!$this->hasMediaDiskSpace($dir, (int) ($mediaInfo['file_size'] ?? 0))) {
+                $this->mediaDeferredCount++;
+
+                return false;
+            }
+
             // Пишем ответ сразу во временный файл, не загружая всё видео в память PHP.
             $temporaryPath = $fullPath . '.' . $mediaId . '.' . getmypid() . '.part';
             $output = fopen($temporaryPath, 'wb');
@@ -786,6 +805,18 @@ class Collector
             curl_setopt($ch, CURLOPT_HTTPHEADER, ['Content-Type: application/json']);
             curl_setopt($ch, CURLOPT_FILE, $output);
             curl_setopt($ch, CURLOPT_TIMEOUT, 300);
+            curl_setopt($ch, CURLOPT_NOPROGRESS, false);
+            $diskBlocked = false;
+
+            curl_setopt($ch, CURLOPT_XFERINFOFUNCTION, function () use ($dir, &$diskBlocked) {
+                if (!$this->hasMediaDiskSpace($dir, 8 * 1024 * 1024)) {
+                    $diskBlocked = true;
+
+                    return 1;
+                }
+
+                return 0;
+            });
 
             $ok = curl_exec($ch);
             $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
@@ -793,6 +824,10 @@ class Collector
             curl_close($ch);
             fclose($output);
             $output = null;
+
+            if ($diskBlocked) {
+                $this->mediaDeferredCount++;
+            }
 
             if ($ok && $httpCode === 200 && filesize($temporaryPath) > 0) {
                 if (!rename($temporaryPath, $fullPath)) {
@@ -829,6 +864,27 @@ class Collector
 
             return false;
         }
+    }
+
+    /**
+     * Оставляет на разделе запас места для БД и других процессов.
+     */
+    private function hasMediaDiskSpace(string $directory, int $expectedBytes = 0): bool
+    {
+        clearstatcache(true, $directory);
+        $freeBytes = disk_free_space($directory);
+
+        if ($freeBytes !== false && $freeBytes - max(0, $expectedBytes) >= $this->mediaMinFreeBytes) {
+            return true;
+        }
+
+        if (!$this->mediaDiskWarningShown) {
+            error_log('Загрузка медиа приостановлена: свободного места недостаточно для файла и резерва ' .
+                round($this->mediaMinFreeBytes / 1024 ** 3, 1) . ' ГиБ. Метаданные сохраняются, файл можно скачать позже.');
+            $this->mediaDiskWarningShown = true;
+        }
+
+        return false;
     }
 
     /**
