@@ -2,5 +2,6 @@ vendor
 .*
 /sessions/*
 /media/*
+/parser/var/history-audit/
 madeline.phar*
 !.local
